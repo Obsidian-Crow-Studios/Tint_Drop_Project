@@ -1,0 +1,9 @@
+.godot/
+*.tmp
+*.swp
+.DS_Store
+*~
+export/
+*.import.bak
+tint-drop-godot.tar.gz
+tools/__pycache__/
