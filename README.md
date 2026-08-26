@@ -17,4 +17,4 @@ Portrait window is 720×1280; a landscape-friendly stretch is enabled if you res
 - Tap another tube to **pour** if it is empty, or the same color with free space.
 - Tap the same tube again to cancel.
 - **Undo** steps back one pour. **Restart** resets the level. **Next** after a clear.
-- Five clears is a pack stop; ten levels is the campaign. **Shop** is a stub (`IAP later`).
+- Five clears is a pack stop; twenty levels is the campaign. **Shop** is a stub (`IAP later`).
