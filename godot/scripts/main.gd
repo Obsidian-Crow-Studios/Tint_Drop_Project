@@ -2,10 +2,11 @@ extends Control
 
 const TubeView = preload("res://scripts/tube.gd")
 const LogoMarkScript = preload("res://scripts/logo_mark.gd")
+const WinOverlayScript = preload("res://scripts/win_overlay.gd")
 const CAPACITY := 4
 const TUBE_SCENE_W := 144.0
 const TUBE_SCENE_H := 282.0
-const LEVEL_TIME := 60.0
+const LEVEL_TIME := 90.0
 const PACK_CLEARS := 5
 const SFX_PICK := preload("res://assets/sfx/sfx_pick.wav")
 const SFX_POUR := preload("res://assets/sfx/sfx_pour.wav")
@@ -38,6 +39,8 @@ const TEX_BOARD_HERO := preload("res://assets/ui/board-hero.png")
 const TEX_BOARD_TILE := preload("res://assets/ui/board-tile.png")
 const TEX_BOARD_BTN := preload("res://assets/ui/board-btn.png")
 const TEX_HINT_TAP := preload("res://assets/ui/hint-tap-a-tube.png")
+const TEX_PIP_EMPTY := preload("res://assets/ui/pip_empty_20.png")
+const TEX_PIP_LIT := preload("res://assets/ui/pip_lit_20.png")
 const CROWD_WATCH := 0
 const CROWD_CHEER := 1
 const CROWD_GROAN := 2
@@ -94,9 +97,7 @@ var _chips_num: Label
 var _clears_label: Label
 var _status: Label
 var _tube_row: HBoxContainer
-var _win_panel: Control
-var _win_label: Label
-var _win_flavor: Label
+var _win_overlay: WinOverlay
 var _lose_panel: Control
 var _lose_label: Label
 var _lose_flavor: Label
@@ -108,6 +109,7 @@ var _top_wash: ColorRect
 var _bottom_wash: ColorRect
 var _level_tile: Control
 var _time_tile: Control
+var _clears_tile: Control
 var _clear_pips: Array = []
 var _sfx_pick: AudioStreamPlayer
 var _sfx_pour: AudioStreamPlayer
@@ -121,6 +123,7 @@ var _sfx_cheer_match: AudioStreamPlayer
 var _sfx_cheer_clear: AudioStreamPlayer
 var _sfx_lose: AudioStreamPlayer
 var _bgm: AudioStreamPlayer
+var _bgm_tween: Tween
 var _crowd_faces: Array[TextureRect] = []
 var _crowd_watch_tex: Texture2D
 var _crowd_cheer_tex: Texture2D
@@ -130,7 +133,6 @@ var _hint_pulse: Tween
 var _hint_poured: bool = false
 var _hint_art: TextureRect
 var _session_live: bool = false
-var _next_btn: Button
 var _shop_btn: Button
 var _title_catcher: Control
 var _title_prompt: Control
@@ -199,8 +201,8 @@ func _build_ui() -> void:
 	add_child(_level_tile)
 	_level_label = _tile_value(_level_tile, "LEVEL", "1/10")
 
-	var clears_tile := _glass_panel(Vector2(480, 384), Vector2(216, 80), TEX_BOARD_TILE)
-	add_child(clears_tile)
+	_clears_tile = _glass_panel(Vector2(480, 384), Vector2(216, 80), TEX_BOARD_TILE)
+	add_child(_clears_tile)
 	var clears_col := VBoxContainer.new()
 	clears_col.set_anchors_preset(PRESET_FULL_RECT)
 	clears_col.offset_left = 0.0
@@ -209,7 +211,7 @@ func _build_ui() -> void:
 	clears_col.offset_bottom = 0.0
 	clears_col.alignment = BoxContainer.ALIGNMENT_CENTER
 	clears_col.add_theme_constant_override("separation", 4)
-	clears_tile.add_child(clears_col)
+	_clears_tile.add_child(clears_col)
 	var clears_cap := Label.new()
 	clears_cap.text = "CLEARS"
 	clears_cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -218,14 +220,19 @@ func _build_ui() -> void:
 	clears_col.add_child(clears_cap)
 	var pip_row := HBoxContainer.new()
 	pip_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	pip_row.add_theme_constant_override("separation", 6)
+	pip_row.add_theme_constant_override("separation", 12)
 	clears_col.add_child(pip_row)
 	_clear_pips.clear()
 	for _i in PACK_CLEARS:
-		var pip := ColorRect.new()
-		pip.custom_minimum_size = Vector2(16, 16)
-		pip.color = Color(0.14, 0.08, 0.06, 0.95)
-		pip.pivot_offset = Vector2(8, 8)
+		var pip := TextureRect.new()
+		pip.texture = TEX_PIP_EMPTY
+		pip.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pip.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		pip.custom_minimum_size = Vector2(20, 20)
+		pip.size = Vector2(20, 20)
+		pip.pivot_offset = Vector2(10, 10)
+		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pip.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 		pip_row.add_child(pip)
 		_clear_pips.append(pip)
 	_clears_label = Label.new()
@@ -310,47 +317,9 @@ func _build_ui() -> void:
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_flash)
 
-	_win_panel = Control.new()
-	_win_panel.visible = false
-	_win_panel.anchor_left = 0.5
-	_win_panel.anchor_right = 0.5
-	_win_panel.anchor_top = 0.5
-	_win_panel.anchor_bottom = 0.5
-	_win_panel.offset_left = -210
-	_win_panel.offset_right = 210
-	_win_panel.offset_top = -140
-	_win_panel.offset_bottom = 140
-	_win_panel.custom_minimum_size = Vector2(420, 280)
-	_win_panel.pivot_offset = Vector2(210, 140)
-	_win_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	_win_panel.clip_contents = false
-	_win_panel.add_child(_plaque_tex(TEX_BOARD_HERO))
-	add_child(_win_panel)
-
-	var win_col := VBoxContainer.new()
-	win_col.add_theme_constant_override("separation", 10)
-	_fill_rect(win_col)
-	win_col.offset_left = 36.0
-	win_col.offset_right = -36.0
-	win_col.offset_top = 28.0
-	win_col.offset_bottom = -28.0
-	win_col.alignment = BoxContainer.ALIGNMENT_CENTER
-	_win_panel.add_child(win_col)
-	_win_label = Label.new()
-	_win_label.text = "Cleared!"
-	_win_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_win_label.add_theme_font_size_override("font_size", 32)
-	_win_label.add_theme_color_override("font_color", UI_CAPTION)
-	win_col.add_child(_win_label)
-	_win_flavor = Label.new()
-	_win_flavor.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_win_flavor.add_theme_font_size_override("font_size", 16)
-	_win_flavor.add_theme_color_override("font_color", Color(0.82, 0.86, 0.92))
-	_win_flavor.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	win_col.add_child(_win_flavor)
-	_next_btn = _make_btn("Next", _on_next)
-	_next_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	win_col.add_child(_next_btn)
+	_win_overlay = WinOverlayScript.new()
+	add_child(_win_overlay)
+	_win_overlay.next_pressed.connect(_on_next)
 
 	_lose_panel = Control.new()
 	_lose_panel.visible = false
@@ -520,7 +489,7 @@ func _build_title_catcher() -> void:
 	col.add_child(tap)
 
 	var cap := Label.new()
-	cap.text = "60s · 5 clears"
+	cap.text = "90s · 5 clears"
 	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cap.add_theme_font_override("font", HINT_FONT)
@@ -546,6 +515,8 @@ func _start_title_pulse() -> void:
 
 func _show_title() -> void:
 	_session_live = false
+	_dismiss_win_overlay()
+	_restore_bgm()
 	if _title_catcher != null:
 		_title_catcher.visible = true
 		_title_catcher.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -554,7 +525,7 @@ func _show_title() -> void:
 	_set_hint_visible(false)
 	if _status != null:
 		_status.visible = false
-	time_left = LEVEL_TIME
+	time_left = _level_clock()
 	_update_timer_hud()
 	_start_title_pulse()
 
@@ -573,7 +544,7 @@ func _begin_session() -> void:
 		_title_prompt.scale = Vector2.ONE
 	if _tube_row != null:
 		_tube_row.visible = true
-	time_left = LEVEL_TIME
+	time_left = _level_clock()
 	_set_hint_visible(true)
 	_play_sfx(_sfx_next)
 
@@ -810,9 +781,34 @@ func _setup_sfx() -> void:
 func _duck_bgm() -> void:
 	if _bgm == null:
 		return
-	var tw: Tween = create_tween()
-	tw.tween_property(_bgm, "volume_db", BGM_DUCK, 0.10)
-	tw.tween_property(_bgm, "volume_db", BGM_VOL, 0.55)
+	if _bgm_tween != null and is_instance_valid(_bgm_tween):
+		_bgm_tween.kill()
+	_bgm_tween = create_tween()
+	_bgm_tween.tween_property(_bgm, "volume_db", BGM_DUCK, 0.10)
+	_bgm_tween.tween_property(_bgm, "volume_db", BGM_VOL, 0.55)
+
+
+func _hold_bgm_duck() -> void:
+	if _bgm == null:
+		return
+	if _bgm_tween != null and is_instance_valid(_bgm_tween):
+		_bgm_tween.kill()
+	_bgm_tween = create_tween()
+	_bgm_tween.tween_property(_bgm, "volume_db", BGM_DUCK, 0.12)
+
+
+func _restore_bgm() -> void:
+	if _bgm == null:
+		return
+	if _bgm_tween != null and is_instance_valid(_bgm_tween):
+		_bgm_tween.kill()
+	_bgm_tween = create_tween()
+	_bgm_tween.tween_property(_bgm, "volume_db", BGM_VOL, 0.35)
+
+
+func _dismiss_win_overlay() -> void:
+	if _win_overlay != null:
+		_win_overlay.dismiss()
 
 func _make_sfx(stream: AudioStream) -> AudioStreamPlayer:
 	var p := AudioStreamPlayer.new()
@@ -966,22 +962,23 @@ func _refresh_clears_label() -> void:
 	if _clears_label != null:
 		_clears_label.text = "%d/%d" % [filled, PACK_CLEARS]
 	for i in _clear_pips.size():
-		var pip: ColorRect = _clear_pips[i]
+		var pip: TextureRect = _clear_pips[i]
 		if not is_instance_valid(pip):
 			continue
 		var on: bool = i < filled
-		var next_col := Color(UI_HERO.r, UI_HERO.g, UI_HERO.b, 1.0) if on else Color(0.14, 0.08, 0.06, 0.95)
-		if on and pip.color.r < 0.5:
-			pip.scale = Vector2(1.35, 1.35)
+		var was: bool = pip.texture == TEX_PIP_LIT
+		pip.texture = TEX_PIP_LIT if on else TEX_PIP_EMPTY
+		if on and not was:
+			pip.scale = Vector2(1.55, 1.55)
 			var tw: Tween = create_tween()
-			tw.tween_property(pip, "scale", Vector2.ONE, 0.14).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		pip.color = next_col
+			tw.tween_property(pip, "scale", Vector2.ONE, 0.20).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			_punch_clears_tile()
 
 func _update_timer_hud() -> void:
 	if _time_label == null:
 		return
 	if not _session_live:
-		_time_label.text = str(int(LEVEL_TIME))
+		_time_label.text = str(int(round(_level_clock())))
 		_time_label.modulate = UI_NUM
 		_time_label.scale = Vector2.ONE
 		return
@@ -995,14 +992,31 @@ func _update_timer_hud() -> void:
 		_time_label.modulate = UI_NUM
 		_time_label.scale = Vector2.ONE
 		return
-	if time_left <= 10.0:
+	var warn: float = 10.0
+	if level_index >= PACK_CLEARS:
+		warn = 12.0
+	if time_left <= warn:
 		var wave: float = 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.001 * TAU)
-		var pulse: float = lerpf(1.0, 1.08, wave)
+		var pulse: float = lerpf(1.0, 1.12, wave)
 		_time_label.scale = Vector2(pulse, pulse)
-		_time_label.modulate = UI_HERO.lerp(UI_NUM, wave * 0.28)
+		_time_label.modulate = UI_HERO.lerp(UI_NUM, wave * 0.22)
 	else:
 		_time_label.modulate = UI_NUM
 		_time_label.scale = Vector2.ONE
+
+func _level_clock() -> float:
+	var lv: int = level_index + 1
+	if lv <= 1:
+		return 90.0
+	if lv == 2:
+		return 75.0
+	if lv <= 5:
+		return 60.0
+	if lv <= 8:
+		return 50.0
+	if lv <= 10:
+		return 40.0
+	return 35.0
 
 func _tick_level_tile() -> void:
 	if _level_tile == null:
@@ -1011,6 +1025,28 @@ func _tick_level_tile() -> void:
 	_level_tile.scale = Vector2(1.08, 1.08)
 	var tw: Tween = create_tween()
 	tw.tween_property(_level_tile, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+func _punch_clears_tile() -> void:
+	if _clears_tile == null:
+		return
+	_clears_tile.pivot_offset = _clears_tile.size * 0.5
+	_clears_tile.scale = Vector2(1.12, 1.12)
+	var tw: Tween = create_tween()
+	tw.tween_property(_clears_tile, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+func _punch_combo_hud(n: int) -> void:
+	if _time_tile != null:
+		_time_tile.pivot_offset = _time_tile.size * 0.5
+		_time_tile.scale = Vector2(1.10, 1.10)
+		var tw: Tween = create_tween()
+		tw.tween_property(_time_tile, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	if n >= 3 and _level_tile != null:
+		_tick_level_tile()
+	if _chips_num != null:
+		_chips_num.pivot_offset = _chips_num.size * 0.5
+		_chips_num.scale = Vector2(1.16, 1.16)
+		var ct: Tween = create_tween()
+		ct.tween_property(_chips_num, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func _load_level(i: int) -> void:
 	level_index = clampi(i, 0, LEVELS.size() - 1)
@@ -1021,11 +1057,10 @@ func _load_level(i: int) -> void:
 	lost = false
 	_pour_busy = false
 	_extra_well_used = false
-	time_left = LEVEL_TIME
+	time_left = _level_clock()
 	combo_peak = 0
 	_reset_combo()
-	_win_panel.visible = false
-	_win_panel.scale = Vector2.ONE
+	_dismiss_win_overlay()
 	if _lose_panel != null:
 		_lose_panel.visible = false
 		_lose_panel.scale = Vector2.ONE
@@ -1222,19 +1257,27 @@ func _bezier2(a: Vector2, b: Vector2, c: Vector2, t: float) -> Vector2:
 func _float_combo(tube_i: int, n: int) -> void:
 	if n < 2 or tube_i < 0 or tube_i >= _tube_views.size():
 		return
-	var at: Vector2 = _tube_views[tube_i].mouth_global_pos() - global_position + Vector2(-12.0, -28.0)
+	var at: Vector2 = _tube_views[tube_i].mouth_global_pos() - global_position + Vector2(-28.0, -36.0)
 	var lab := Label.new()
 	lab.text = "x%d" % n
-	lab.add_theme_font_size_override("font_size", 30)
-	lab.add_theme_color_override("font_color", UI_CAPTION)
+	lab.add_theme_font_override("font", HINT_FONT)
+	lab.add_theme_font_size_override("font_size", 44 + mini(n, 6) * 2)
+	lab.add_theme_color_override("font_color", UI_HERO if n >= 3 else UI_CAPTION)
+	lab.add_theme_color_override("font_outline_color", UI_ESPRESSO)
+	lab.add_theme_constant_override("outline_size", 6)
 	lab.position = at
 	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lab.pivot_offset = Vector2(36.0, 20.0)
+	lab.scale = Vector2(0.72, 0.72)
 	add_child(lab)
+	var rise: float = 56.0 + float(mini(n, 6)) * 4.0
 	var tw: Tween = create_tween()
 	tw.set_parallel(true)
-	tw.tween_property(lab, "position:y", at.y - 40.0, 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tw.tween_property(lab, "modulate:a", 0.0, 0.35)
+	tw.tween_property(lab, "position:y", at.y - rise, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(lab, "scale", Vector2(1.18, 1.18), 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(lab, "modulate:a", 0.0, 0.55).set_delay(0.12)
 	tw.chain().tween_callback(lab.queue_free)
+	_punch_combo_hud(n)
 
 func _try_pour(src_i: int, dst_i: int) -> bool:
 	var src: Array = tubes[src_i]
@@ -1282,40 +1325,24 @@ func _on_win() -> void:
 	session_clears += 1
 	_refresh_clears_label()
 	_sync_chips_left(true)
-	var leftover: int = int(ceil(time_left))
 	var pack_done: bool = (session_clears % PACK_CLEARS) == 0
 	var campaign_done: bool = level_index >= LEVELS.size() - 1 or session_clears >= LEVELS.size()
-	if pack_done and not campaign_done:
-		_win_label.text = "Pack complete!"
-		if _next_btn != null:
-			_next_btn.text = "Next pack"
-	elif campaign_done:
-		_win_label.text = "Pack complete!"
-		if _next_btn != null:
-			_next_btn.text = "Again"
-	else:
-		_win_label.text = "Cleared!"
-		if _next_btn != null:
-			_next_btn.text = "Next"
-	var flavor := "0 to sort\n%ds left" % leftover
-	if combo_peak >= 2:
-		flavor += "\nPeak combo  x%d" % combo_peak
-	_win_flavor.text = flavor
-	_win_panel.visible = true
 	_set_hint_visible(false)
 	_show_status("%d/%d clears" % [session_clears % PACK_CLEARS, PACK_CLEARS])
 	if pack_done:
 		_show_status("Pack complete.")
+	if _win_overlay != null:
+		var filled: int = session_clears % PACK_CLEARS
+		if pack_done and session_clears > 0:
+			filled = PACK_CLEARS
+		_win_overlay.present(pack_done, campaign_done, filled)
 	_play_sfx(_sfx_cheer_clear)
-	_play_sfx(_sfx_clear)
-	if pack_done:
-		_play_sfx(_sfx_next)
-	_duck_bgm()
+	_hold_bgm_duck()
 	_crowd_react(true)
 	if _logo != null:
 		_logo.play_pop()
 	_punch_clear()
-	_burst_at_center(Color(UI_RIM.r, UI_RIM.g, UI_RIM.b, 1.0), 22)
+	_burst_at_center(Color(UI_RIM.r, UI_RIM.g, UI_RIM.b, 1.0), 36)
 	_bounce_full_tubes()
 
 func _bounce_full_tubes() -> void:
@@ -1334,11 +1361,6 @@ func _punch_clear() -> void:
 		_flash.color = Color(0.78, 1.0, 0.94, 0.38)
 		var ft: Tween = create_tween()
 		ft.tween_property(_flash, "color:a", 0.0, 0.32)
-	_win_panel.pivot_offset = Vector2(210.0, 140.0)
-	_win_panel.scale = Vector2(0.84, 0.84)
-	var tw: Tween = create_tween()
-	tw.tween_property(_win_panel, "scale", Vector2(1.08, 1.08), 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.tween_property(_win_panel, "scale", Vector2.ONE, 0.12)
 
 func _punch_lose() -> void:
 	if _flash != null:
@@ -1391,6 +1413,8 @@ func _spawn_sparks(at: Vector2, col: Color, n: int) -> void:
 func _on_restart() -> void:
 	if not _session_live:
 		return
+	_dismiss_win_overlay()
+	_restore_bgm()
 	if _lose_panel != null:
 		_lose_panel.visible = false
 	_play_sfx(_sfx_restart)
@@ -1415,6 +1439,8 @@ func _on_undo() -> void:
 	_sync_chips_left(true)
 
 func _on_next() -> void:
+	_dismiss_win_overlay()
+	_restore_bgm()
 	_play_sfx(_sfx_next)
 	var pack_done: bool = (session_clears % PACK_CLEARS) == 0
 	var campaign_done: bool = level_index >= LEVELS.size() - 1 or session_clears >= LEVELS.size()
