@@ -12,6 +12,8 @@ const TEX_TUBES := preload("res://assets/ui/win/burst-tubes.png")
 const TEX_CLEARED := preload("res://assets/ui/win/cleared-word.png")
 const TEX_PACK := preload("res://assets/ui/win/pack-complete-word.png")
 const TEX_NEXT := preload("res://assets/ui/win/next-plaque.png")
+const TEX_PIP_EMPTY := preload("res://assets/ui/pip_empty_20.png")
+const TEX_PIP_LIT := preload("res://assets/ui/pip_lit_20.png")
 const SFX_FANFARE := preload("res://assets/sfx/sfx_clear_fanfare.wav")
 const SFX_SPRAY := preload("res://assets/sfx/sfx_spray_idle.wav")
 const HINT_FONT := preload("res://assets/ui/fonts/BubblegumSans-Regular.ttf")
@@ -29,6 +31,7 @@ const SPRAY_COLS: Array[Color] = [
 ]
 
 var next_btn: Button
+var _pips: Array[TextureRect] = []
 
 var _root: Control
 var _dim: ColorRect
@@ -63,7 +66,7 @@ func is_showing() -> bool:
 	return _showing
 
 
-func present(pack_complete: bool, campaign_done: bool) -> void:
+func present(pack_complete: bool, campaign_done: bool, filled_pips: int = 0) -> void:
 	dismiss()
 	_showing = true
 	visible = true
@@ -77,6 +80,7 @@ func present(pack_complete: bool, campaign_done: bool) -> void:
 		next_btn.text = "Next pack"
 	else:
 		next_btn.text = "Next"
+	_set_pips(filled_pips)
 	_reset_visuals()
 	_play_fanfare()
 	_spray_moving = true
@@ -183,11 +187,11 @@ func _build() -> void:
 	_word.anchor_right = 0.5
 	_word.anchor_top = 0.0
 	_word.anchor_bottom = 0.0
-	_word.offset_left = -360.0
-	_word.offset_right = 360.0
-	_word.offset_top = 36.0
-	_word.offset_bottom = 280.0
-	_word.pivot_offset = Vector2(360.0, 122.0)
+	_word.offset_left = -320.0
+	_word.offset_right = 320.0
+	_word.offset_top = 220.0
+	_word.offset_bottom = 420.0
+	_word.pivot_offset = Vector2(320.0, 100.0)
 	_root.add_child(_word)
 
 	_spray_host = Control.new()
@@ -196,17 +200,21 @@ func _build() -> void:
 	_root.add_child(_spray_host)
 	_build_spray_bits()
 
+	_build_overlay_pips()
+
 	next_btn = Button.new()
 	next_btn.text = "Next"
-	next_btn.anchor_left = 0.5
-	next_btn.anchor_right = 0.5
-	next_btn.anchor_top = 1.0
-	next_btn.anchor_bottom = 1.0
-	next_btn.offset_left = -300.0
-	next_btn.offset_right = 300.0
-	next_btn.offset_top = -236.0
-	next_btn.offset_bottom = -28.0
-	next_btn.custom_minimum_size = Vector2(600.0, 208.0)
+	next_btn.anchor_left = 0.0
+	next_btn.anchor_right = 0.0
+	next_btn.anchor_top = 0.0
+	next_btn.anchor_bottom = 0.0
+	next_btn.offset_left = 120.0
+	next_btn.offset_top = 920.0
+	next_btn.offset_right = 600.0
+	next_btn.offset_bottom = 1120.0
+	next_btn.position = Vector2(120.0, 920.0)
+	next_btn.size = Vector2(480.0, 200.0)
+	next_btn.custom_minimum_size = Vector2(480.0, 200.0)
 	next_btn.add_theme_font_override("font", HINT_FONT)
 	next_btn.add_theme_font_size_override("font_size", 36)
 	next_btn.add_theme_color_override("font_color", UI_CAPTION)
@@ -322,6 +330,49 @@ func _fill(node: Control) -> void:
 	node.offset_bottom = 0.0
 
 
+func _build_overlay_pips() -> void:
+	_pips.clear()
+	var gap: float = 12.0
+	var sz: float = 20.0
+	var n: int = 5
+	var total: float = sz * float(n) + gap * float(n - 1)
+	var x0: float = (720.0 - total) * 0.5
+	for i in n:
+		var pip := TextureRect.new()
+		pip.texture = TEX_PIP_EMPTY
+		pip.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pip.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pip.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		pip.anchor_left = 0.0
+		pip.anchor_right = 0.0
+		pip.anchor_top = 0.0
+		pip.anchor_bottom = 0.0
+		var x: float = x0 + float(i) * (sz + gap)
+		pip.offset_left = x
+		pip.offset_top = 496.0
+		pip.offset_right = x + sz
+		pip.offset_bottom = 516.0
+		pip.position = Vector2(x, 496.0)
+		pip.size = Vector2(sz, sz)
+		pip.custom_minimum_size = Vector2(sz, sz)
+		pip.pivot_offset = Vector2(10.0, 10.0)
+		_root.add_child(pip)
+		_pips.append(pip)
+
+
+func _set_pips(filled: int) -> void:
+	var n: int = clampi(filled, 0, _pips.size())
+	for i in _pips.size():
+		var pip: TextureRect = _pips[i]
+		pip.texture = TEX_PIP_LIT if i < n else TEX_PIP_EMPTY
+		pip.scale = Vector2.ONE
+		if i < n:
+			pip.scale = Vector2(1.35, 1.35)
+			var tw: Tween = create_tween()
+			tw.tween_property(pip, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
 func _build_spray_bits() -> void:
 	_spray_bits.clear()
 	for i in 24:
@@ -402,7 +453,7 @@ func _start_word_pulse() -> void:
 		return
 	if _word_tween != null and is_instance_valid(_word_tween):
 		_word_tween.kill()
-	_word.pivot_offset = Vector2(360.0, 122.0)
+	_word.pivot_offset = Vector2(320.0, 100.0)
 	_word_tween = create_tween()
 	_word_tween.set_loops()
 	_word_tween.tween_property(_word, "scale", Vector2(1.045, 1.045), 0.55).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)

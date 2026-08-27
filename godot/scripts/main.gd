@@ -6,8 +6,7 @@ const WinOverlayScript = preload("res://scripts/win_overlay.gd")
 const CAPACITY := 4
 const TUBE_SCENE_W := 144.0
 const TUBE_SCENE_H := 282.0
-const LEVEL_TIME := 60.0
-const LEVEL_TIME_MIN := 36.0
+const LEVEL_TIME := 90.0
 const PACK_CLEARS := 5
 const SFX_PICK := preload("res://assets/sfx/sfx_pick.wav")
 const SFX_POUR := preload("res://assets/sfx/sfx_pour.wav")
@@ -40,6 +39,8 @@ const TEX_BOARD_HERO := preload("res://assets/ui/board-hero.png")
 const TEX_BOARD_TILE := preload("res://assets/ui/board-tile.png")
 const TEX_BOARD_BTN := preload("res://assets/ui/board-btn.png")
 const TEX_HINT_TAP := preload("res://assets/ui/hint-tap-a-tube.png")
+const TEX_PIP_EMPTY := preload("res://assets/ui/pip_empty_20.png")
+const TEX_PIP_LIT := preload("res://assets/ui/pip_lit_20.png")
 const CROWD_WATCH := 0
 const CROWD_CHEER := 1
 const CROWD_GROAN := 2
@@ -219,14 +220,19 @@ func _build_ui() -> void:
 	clears_col.add_child(clears_cap)
 	var pip_row := HBoxContainer.new()
 	pip_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	pip_row.add_theme_constant_override("separation", 6)
+	pip_row.add_theme_constant_override("separation", 12)
 	clears_col.add_child(pip_row)
 	_clear_pips.clear()
 	for _i in PACK_CLEARS:
-		var pip := ColorRect.new()
-		pip.custom_minimum_size = Vector2(16, 16)
-		pip.color = Color(0.14, 0.08, 0.06, 0.95)
-		pip.pivot_offset = Vector2(8, 8)
+		var pip := TextureRect.new()
+		pip.texture = TEX_PIP_EMPTY
+		pip.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pip.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		pip.custom_minimum_size = Vector2(20, 20)
+		pip.size = Vector2(20, 20)
+		pip.pivot_offset = Vector2(10, 10)
+		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pip.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 		pip_row.add_child(pip)
 		_clear_pips.append(pip)
 	_clears_label = Label.new()
@@ -483,7 +489,7 @@ func _build_title_catcher() -> void:
 	col.add_child(tap)
 
 	var cap := Label.new()
-	cap.text = "60s · 5 clears"
+	cap.text = "90s · 5 clears"
 	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cap.add_theme_font_override("font", HINT_FONT)
@@ -956,17 +962,17 @@ func _refresh_clears_label() -> void:
 	if _clears_label != null:
 		_clears_label.text = "%d/%d" % [filled, PACK_CLEARS]
 	for i in _clear_pips.size():
-		var pip: ColorRect = _clear_pips[i]
+		var pip: TextureRect = _clear_pips[i]
 		if not is_instance_valid(pip):
 			continue
 		var on: bool = i < filled
-		var next_col := Color(UI_HERO.r, UI_HERO.g, UI_HERO.b, 1.0) if on else Color(0.14, 0.08, 0.06, 0.95)
-		if on and pip.color.r < 0.5:
+		var was: bool = pip.texture == TEX_PIP_LIT
+		pip.texture = TEX_PIP_LIT if on else TEX_PIP_EMPTY
+		if on and not was:
 			pip.scale = Vector2(1.55, 1.55)
 			var tw: Tween = create_tween()
 			tw.tween_property(pip, "scale", Vector2.ONE, 0.20).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 			_punch_clears_tile()
-		pip.color = next_col
 
 func _update_timer_hud() -> void:
 	if _time_label == null:
@@ -999,11 +1005,18 @@ func _update_timer_hud() -> void:
 		_time_label.scale = Vector2.ONE
 
 func _level_clock() -> float:
-	if level_index < PACK_CLEARS:
-		return LEVEL_TIME
-	var span: int = maxi(LEVELS.size() - PACK_CLEARS, 1)
-	var t: float = float(level_index - PACK_CLEARS) / float(maxi(span - 1, 1))
-	return lerpf(54.0, LEVEL_TIME_MIN, clampf(t, 0.0, 1.0))
+	var lv: int = level_index + 1
+	if lv <= 1:
+		return 90.0
+	if lv == 2:
+		return 75.0
+	if lv <= 5:
+		return 60.0
+	if lv <= 8:
+		return 50.0
+	if lv <= 10:
+		return 40.0
+	return 35.0
 
 func _tick_level_tile() -> void:
 	if _level_tile == null:
@@ -1319,7 +1332,10 @@ func _on_win() -> void:
 	if pack_done:
 		_show_status("Pack complete.")
 	if _win_overlay != null:
-		_win_overlay.present(pack_done, campaign_done)
+		var filled: int = session_clears % PACK_CLEARS
+		if pack_done and session_clears > 0:
+			filled = PACK_CLEARS
+		_win_overlay.present(pack_done, campaign_done, filled)
 	_play_sfx(_sfx_cheer_clear)
 	_hold_bgm_duck()
 	_crowd_react(true)
