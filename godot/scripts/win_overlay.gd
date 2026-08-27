@@ -2,6 +2,7 @@ extends CanvasLayer
 class_name WinOverlay
 
 signal next_pressed
+signal fanfare_ended
 
 const CHROMA := preload("res://shaders/chroma_key.gdshader")
 const TEX_BURST := preload("res://assets/ui/win/fanfare-burst.png")
@@ -15,7 +16,7 @@ const TEX_NEXT := preload("res://assets/ui/win/next-plaque.png")
 const TEX_PIP_EMPTY := preload("res://assets/ui/pip_empty_20.png")
 const TEX_PIP_LIT := preload("res://assets/ui/pip_lit_20.png")
 const SFX_FANFARE := preload("res://assets/sfx/sfx_clear_fanfare.wav")
-const SFX_SPRAY := preload("res://assets/sfx/sfx_spray_idle.wav")
+const SFX_CROWD_CHEER := preload("res://assets/sfx/sfx_crowd_cheer.wav")
 const HINT_FONT := preload("res://assets/ui/fonts/BubblegumSans-Regular.ttf")
 
 const FANFARE_S := 7.0
@@ -46,7 +47,7 @@ var _glow: ColorRect
 var _spray_host: Control
 var _spray_bits: Array[ColorRect] = []
 var _fanfare: AudioStreamPlayer
-var _spray_sfx: AudioStreamPlayer
+var _cheer: AudioStreamPlayer
 var _seq: Tween
 var _spray_tween: Tween
 var _word_tween: Tween
@@ -241,20 +242,14 @@ func _build() -> void:
 	_fanfare.bus = "Master"
 	add_child(_fanfare)
 
-	_spray_sfx = AudioStreamPlayer.new()
-	var spray_stream: AudioStream = SFX_SPRAY
-	if spray_stream is AudioStreamWAV:
-		var wav := spray_stream as AudioStreamWAV
-		wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
-		wav.loop_begin = 0
-		var bytes_per_frame: int = 4 if wav.stereo else 2
-		var frames: int = 0
-		if bytes_per_frame > 0:
-			frames = int(wav.data.size() / bytes_per_frame)
-		wav.loop_end = frames
-	_spray_sfx.stream = spray_stream
-	_spray_sfx.bus = "Master"
-	add_child(_spray_sfx)
+	_cheer = AudioStreamPlayer.new()
+	var cheer_stream: AudioStream = SFX_CROWD_CHEER
+	if cheer_stream is AudioStreamWAV:
+		var wav := cheer_stream as AudioStreamWAV
+		wav.loop_mode = AudioStreamWAV.LOOP_DISABLED
+	_cheer.stream = cheer_stream
+	_cheer.bus = "Master"
+	add_child(_cheer)
 
 
 func _fanfare_layer(tex: Texture2D, crop_top: float, crop_bottom: float) -> TextureRect:
@@ -464,7 +459,7 @@ func _enter_idle() -> void:
 	if not _showing:
 		return
 	set_process(true)
-	_play_spray_idle()
+	_play_idle_cheer()
 	for bit in _spray_bits:
 		bit.visible = true
 	_tubes_spray.modulate = Color(1, 1, 1, 0.72)
@@ -499,30 +494,31 @@ func _process(delta: float) -> void:
 
 
 func _play_fanfare() -> void:
-	if _spray_sfx != null:
-		_spray_sfx.stop()
+	if _cheer != null:
+		_cheer.stop()
 	if _fanfare == null or _fanfare.stream == null:
 		return
 	_fanfare.stop()
 	_fanfare.play()
 
 
-func _play_spray_idle() -> void:
+func _play_idle_cheer() -> void:
 	if not _showing:
 		return
 	if _fanfare != null:
 		_fanfare.stop()
-	if _spray_sfx == null or _spray_sfx.stream == null:
+	fanfare_ended.emit()
+	if _cheer == null or _cheer.stream == null:
 		return
-	_spray_sfx.stop()
-	_spray_sfx.play()
+	_cheer.stop()
+	_cheer.play()
 
 
 func _stop_audio() -> void:
 	if _fanfare != null:
 		_fanfare.stop()
-	if _spray_sfx != null:
-		_spray_sfx.stop()
+	if _cheer != null:
+		_cheer.stop()
 
 
 func _on_next_pressed() -> void:
