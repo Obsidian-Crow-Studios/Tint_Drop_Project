@@ -320,6 +320,7 @@ func _build_ui() -> void:
 	_win_overlay = WinOverlayScript.new()
 	add_child(_win_overlay)
 	_win_overlay.next_pressed.connect(_on_next)
+	_win_overlay.fanfare_ended.connect(_restore_bgm)
 
 	_lose_panel = Control.new()
 	_lose_panel.visible = false
