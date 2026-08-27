@@ -1,20 +1,24 @@
 # Tint Drop
 
-Color-sort (water-tube) puzzle prototype for Godot 4.7.
+Color-sort (water-tube) puzzle for **Godot 4.7**. Obsidian Crow Studios. Hybridcasual, no gacha.
 
-## Run
-
-1. Open **Godot 4.7**.
-2. Import / open the inner `godot/` folder in this directory.
-3. Press **F5** (or Run Project).
-
-Portrait window is 720×1280; a landscape-friendly stretch is enabled if you resize.
+Import the inner `godot/` folder, then F5. Portrait is 720×1280.
 
 ## Play
 
 - **TAP TO PLAY**, then sort tubes before the 60s clock runs out.
-- Tap a tube to pick its **top color run**.
-- Tap another tube to **pour** if it is empty, or the same color with free space.
-- Tap the same tube again to cancel.
-- **Undo** steps back one pour. **Restart** resets the level. **Next** after a clear.
-- Five clears is a pack stop; twenty levels is the campaign. **Shop** is a stub (`IAP later`).
+- Tap a tube to pick its **top color run**. Tap another to **pour** (empty, or same color with space).
+- **Undo** / **Restart**. Five clears is a pack stop. Twenty levels in the current slice. **Shop** is an IAP stub.
+
+## Contribute
+
+The repo is public. You do not need write access.
+
+1. Fork.
+2. Branch off `main`.
+3. Keep Godot **4.7**. Do not use `PRESET_CENTER_WIDE` or NinePatch `AXIS_STRETCH_MODE_SCALE`.
+4. Follow [`GAME_DESIGN.md`](GAME_DESIGN.md). No loot boxes, gacha, or pay-to-not-suffer.
+5. New levels go in `godot/scripts/main.gd` (`LEVELS`) and must pass `python3 tools/solve_levels.py`.
+6. Open a pull request.
+
+Art is Super Grok / Grok Imagine. Audio is wavs in `godot/assets/`. Code reviews happen on GitHub PRs.
