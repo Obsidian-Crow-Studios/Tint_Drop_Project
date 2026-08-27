@@ -2,6 +2,7 @@ extends Control
 
 const TubeView = preload("res://scripts/tube.gd")
 const LogoMarkScript = preload("res://scripts/logo_mark.gd")
+const WinOverlayScript = preload("res://scripts/win_overlay.gd")
 const CAPACITY := 4
 const TUBE_SCENE_W := 144.0
 const TUBE_SCENE_H := 282.0
@@ -94,9 +95,7 @@ var _chips_num: Label
 var _clears_label: Label
 var _status: Label
 var _tube_row: HBoxContainer
-var _win_panel: Control
-var _win_label: Label
-var _win_flavor: Label
+var _win_overlay: WinOverlay
 var _lose_panel: Control
 var _lose_label: Label
 var _lose_flavor: Label
@@ -121,6 +120,7 @@ var _sfx_cheer_match: AudioStreamPlayer
 var _sfx_cheer_clear: AudioStreamPlayer
 var _sfx_lose: AudioStreamPlayer
 var _bgm: AudioStreamPlayer
+var _bgm_tween: Tween
 var _crowd_faces: Array[TextureRect] = []
 var _crowd_watch_tex: Texture2D
 var _crowd_cheer_tex: Texture2D
@@ -130,7 +130,6 @@ var _hint_pulse: Tween
 var _hint_poured: bool = false
 var _hint_art: TextureRect
 var _session_live: bool = false
-var _next_btn: Button
 var _shop_btn: Button
 var _title_catcher: Control
 var _title_prompt: Control
@@ -310,47 +309,9 @@ func _build_ui() -> void:
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_flash)
 
-	_win_panel = Control.new()
-	_win_panel.visible = false
-	_win_panel.anchor_left = 0.5
-	_win_panel.anchor_right = 0.5
-	_win_panel.anchor_top = 0.5
-	_win_panel.anchor_bottom = 0.5
-	_win_panel.offset_left = -210
-	_win_panel.offset_right = 210
-	_win_panel.offset_top = -140
-	_win_panel.offset_bottom = 140
-	_win_panel.custom_minimum_size = Vector2(420, 280)
-	_win_panel.pivot_offset = Vector2(210, 140)
-	_win_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	_win_panel.clip_contents = false
-	_win_panel.add_child(_plaque_tex(TEX_BOARD_HERO))
-	add_child(_win_panel)
-
-	var win_col := VBoxContainer.new()
-	win_col.add_theme_constant_override("separation", 10)
-	_fill_rect(win_col)
-	win_col.offset_left = 36.0
-	win_col.offset_right = -36.0
-	win_col.offset_top = 28.0
-	win_col.offset_bottom = -28.0
-	win_col.alignment = BoxContainer.ALIGNMENT_CENTER
-	_win_panel.add_child(win_col)
-	_win_label = Label.new()
-	_win_label.text = "Cleared!"
-	_win_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_win_label.add_theme_font_size_override("font_size", 32)
-	_win_label.add_theme_color_override("font_color", UI_CAPTION)
-	win_col.add_child(_win_label)
-	_win_flavor = Label.new()
-	_win_flavor.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_win_flavor.add_theme_font_size_override("font_size", 16)
-	_win_flavor.add_theme_color_override("font_color", Color(0.82, 0.86, 0.92))
-	_win_flavor.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	win_col.add_child(_win_flavor)
-	_next_btn = _make_btn("Next", _on_next)
-	_next_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	win_col.add_child(_next_btn)
+	_win_overlay = WinOverlayScript.new()
+	add_child(_win_overlay)
+	_win_overlay.next_pressed.connect(_on_next)
 
 	_lose_panel = Control.new()
 	_lose_panel.visible = false
@@ -546,6 +507,8 @@ func _start_title_pulse() -> void:
 
 func _show_title() -> void:
 	_session_live = false
+	_dismiss_win_overlay()
+	_restore_bgm()
 	if _title_catcher != null:
 		_title_catcher.visible = true
 		_title_catcher.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -810,9 +773,34 @@ func _setup_sfx() -> void:
 func _duck_bgm() -> void:
 	if _bgm == null:
 		return
-	var tw: Tween = create_tween()
-	tw.tween_property(_bgm, "volume_db", BGM_DUCK, 0.10)
-	tw.tween_property(_bgm, "volume_db", BGM_VOL, 0.55)
+	if _bgm_tween != null and is_instance_valid(_bgm_tween):
+		_bgm_tween.kill()
+	_bgm_tween = create_tween()
+	_bgm_tween.tween_property(_bgm, "volume_db", BGM_DUCK, 0.10)
+	_bgm_tween.tween_property(_bgm, "volume_db", BGM_VOL, 0.55)
+
+
+func _hold_bgm_duck() -> void:
+	if _bgm == null:
+		return
+	if _bgm_tween != null and is_instance_valid(_bgm_tween):
+		_bgm_tween.kill()
+	_bgm_tween = create_tween()
+	_bgm_tween.tween_property(_bgm, "volume_db", BGM_DUCK, 0.12)
+
+
+func _restore_bgm() -> void:
+	if _bgm == null:
+		return
+	if _bgm_tween != null and is_instance_valid(_bgm_tween):
+		_bgm_tween.kill()
+	_bgm_tween = create_tween()
+	_bgm_tween.tween_property(_bgm, "volume_db", BGM_VOL, 0.35)
+
+
+func _dismiss_win_overlay() -> void:
+	if _win_overlay != null:
+		_win_overlay.dismiss()
 
 func _make_sfx(stream: AudioStream) -> AudioStreamPlayer:
 	var p := AudioStreamPlayer.new()
@@ -1024,8 +1012,7 @@ func _load_level(i: int) -> void:
 	time_left = LEVEL_TIME
 	combo_peak = 0
 	_reset_combo()
-	_win_panel.visible = false
-	_win_panel.scale = Vector2.ONE
+	_dismiss_win_overlay()
 	if _lose_panel != null:
 		_lose_panel.visible = false
 		_lose_panel.scale = Vector2.ONE
@@ -1282,35 +1269,16 @@ func _on_win() -> void:
 	session_clears += 1
 	_refresh_clears_label()
 	_sync_chips_left(true)
-	var leftover: int = int(ceil(time_left))
 	var pack_done: bool = (session_clears % PACK_CLEARS) == 0
 	var campaign_done: bool = level_index >= LEVELS.size() - 1 or session_clears >= LEVELS.size()
-	if pack_done and not campaign_done:
-		_win_label.text = "Pack complete!"
-		if _next_btn != null:
-			_next_btn.text = "Next pack"
-	elif campaign_done:
-		_win_label.text = "Pack complete!"
-		if _next_btn != null:
-			_next_btn.text = "Again"
-	else:
-		_win_label.text = "Cleared!"
-		if _next_btn != null:
-			_next_btn.text = "Next"
-	var flavor := "0 to sort\n%ds left" % leftover
-	if combo_peak >= 2:
-		flavor += "\nPeak combo  x%d" % combo_peak
-	_win_flavor.text = flavor
-	_win_panel.visible = true
 	_set_hint_visible(false)
 	_show_status("%d/%d clears" % [session_clears % PACK_CLEARS, PACK_CLEARS])
 	if pack_done:
 		_show_status("Pack complete.")
+	if _win_overlay != null:
+		_win_overlay.present(pack_done, campaign_done)
 	_play_sfx(_sfx_cheer_clear)
-	_play_sfx(_sfx_clear)
-	if pack_done:
-		_play_sfx(_sfx_next)
-	_duck_bgm()
+	_hold_bgm_duck()
 	_crowd_react(true)
 	if _logo != null:
 		_logo.play_pop()
@@ -1334,11 +1302,6 @@ func _punch_clear() -> void:
 		_flash.color = Color(0.78, 1.0, 0.94, 0.38)
 		var ft: Tween = create_tween()
 		ft.tween_property(_flash, "color:a", 0.0, 0.32)
-	_win_panel.pivot_offset = Vector2(210.0, 140.0)
-	_win_panel.scale = Vector2(0.84, 0.84)
-	var tw: Tween = create_tween()
-	tw.tween_property(_win_panel, "scale", Vector2(1.08, 1.08), 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.tween_property(_win_panel, "scale", Vector2.ONE, 0.12)
 
 func _punch_lose() -> void:
 	if _flash != null:
@@ -1391,6 +1354,8 @@ func _spawn_sparks(at: Vector2, col: Color, n: int) -> void:
 func _on_restart() -> void:
 	if not _session_live:
 		return
+	_dismiss_win_overlay()
+	_restore_bgm()
 	if _lose_panel != null:
 		_lose_panel.visible = false
 	_play_sfx(_sfx_restart)
@@ -1415,6 +1380,8 @@ func _on_undo() -> void:
 	_sync_chips_left(true)
 
 func _on_next() -> void:
+	_dismiss_win_overlay()
+	_restore_bgm()
 	_play_sfx(_sfx_next)
 	var pack_done: bool = (session_clears % PACK_CLEARS) == 0
 	var campaign_done: bool = level_index >= LEVELS.size() - 1 or session_clears >= LEVELS.size()
