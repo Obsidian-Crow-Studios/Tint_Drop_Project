@@ -134,9 +134,14 @@ var _hint_poured: bool = false
 var _hint_art: TextureRect
 var _session_live: bool = false
 var _shop_btn: Button
+var _restart_btn: Button
+var _undo_btn: Button
+var _chips_panel: Control
+var _play_host: Control
 var _title_catcher: Control
 var _title_prompt: Control
 var _title_pulse: Tween
+var _live_hud: Array[CanvasItem] = []
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
@@ -167,8 +172,8 @@ func _build_ui() -> void:
 	_logo.size = Vector2(560, 240)
 	_logo.pivot_offset = Vector2(280, 120)
 
-	var chips_panel := _glass_panel(Vector2(24, 272), Vector2(672, 100), TEX_BOARD_HERO)
-	add_child(chips_panel)
+	_chips_panel = _glass_panel(Vector2(24, 272), Vector2(672, 100), TEX_BOARD_HERO)
+	add_child(_chips_panel)
 	var chips_col := VBoxContainer.new()
 	chips_col.set_anchors_preset(PRESET_FULL_RECT)
 	chips_col.offset_left = 0.0
@@ -177,7 +182,7 @@ func _build_ui() -> void:
 	chips_col.offset_bottom = 0.0
 	chips_col.alignment = BoxContainer.ALIGNMENT_CENTER
 	chips_col.add_theme_constant_override("separation", 0)
-	chips_panel.add_child(chips_col)
+	_chips_panel.add_child(chips_col)
 	_chips_num = Label.new()
 	_chips_num.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_chips_num.add_theme_font_size_override("font_size", 64)
@@ -242,8 +247,10 @@ func _build_ui() -> void:
 	clears_col.add_child(_clears_label)
 	_refresh_clears_label()
 
-	add_child(_make_btn("Restart", _on_restart, Vector2(24, 496)))
-	add_child(_make_btn("Undo", _on_undo, Vector2(252, 496)))
+	_restart_btn = _make_btn("Restart", _on_restart, Vector2(24, 496))
+	add_child(_restart_btn)
+	_undo_btn = _make_btn("Undo", _on_undo, Vector2(252, 496))
+	add_child(_undo_btn)
 	_shop_btn = _make_btn("Shop", _on_shop, Vector2(480, 496))
 	add_child(_shop_btn)
 
@@ -256,15 +263,15 @@ func _build_ui() -> void:
 	_shop_toast.text = ""
 	add_child(_shop_toast)
 
-	var play := CenterContainer.new()
-	play.position = Vector2(0, 756)
-	play.size = Vector2(720, 300)
-	add_child(play)
+	_play_host = CenterContainer.new()
+	_play_host.position = Vector2(0, 756)
+	_play_host.size = Vector2(720, 300)
+	add_child(_play_host)
 
 	_tube_row = HBoxContainer.new()
 	_tube_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	_tube_row.add_theme_constant_override("separation", 12)
-	play.add_child(_tube_row)
+	_play_host.add_child(_tube_row)
 
 	_hint_art = TextureRect.new()
 	_hint_art.texture = TEX_HINT_TAP
@@ -320,6 +327,8 @@ func _build_ui() -> void:
 	_win_overlay = WinOverlayScript.new()
 	add_child(_win_overlay)
 	_win_overlay.next_pressed.connect(_on_next)
+	_win_overlay.fanfare_ended.connect(_restore_bgm)
+	_collect_live_hud()
 
 	_lose_panel = Control.new()
 	_lose_panel.visible = false
@@ -806,9 +815,34 @@ func _restore_bgm() -> void:
 	_bgm_tween.tween_property(_bgm, "volume_db", BGM_VOL, 0.35)
 
 
+func _collect_live_hud() -> void:
+	_live_hud.clear()
+	var nodes: Array = [
+		_logo, _chips_panel, _time_tile, _level_tile, _clears_tile,
+		_restart_btn, _undo_btn, _shop_btn, _shop_toast, _play_host, _hint_art, _status,
+	]
+	for n in nodes:
+		if n is CanvasItem:
+			_live_hud.append(n as CanvasItem)
+	for face in _crowd_faces:
+		if is_instance_valid(face):
+			_live_hud.append(face)
+
+
+func _set_live_play_visible(show: bool) -> void:
+	for n in _live_hud:
+		if is_instance_valid(n):
+			n.visible = show
+	if show and _tube_row != null:
+		_tube_row.visible = _session_live
+	if show:
+		_set_hint_visible(_session_live and not _hint_poured and not won and not lost)
+
+
 func _dismiss_win_overlay() -> void:
 	if _win_overlay != null:
 		_win_overlay.dismiss()
+	_set_live_play_visible(true)
 
 func _make_sfx(stream: AudioStream) -> AudioStreamPlayer:
 	var p := AudioStreamPlayer.new()
@@ -1335,6 +1369,7 @@ func _on_win() -> void:
 		var filled: int = session_clears % PACK_CLEARS
 		if pack_done and session_clears > 0:
 			filled = PACK_CLEARS
+		_set_live_play_visible(false)
 		_win_overlay.present(pack_done, campaign_done, filled)
 	_play_sfx(_sfx_cheer_clear)
 	_hold_bgm_duck()
