@@ -79,7 +79,7 @@ func present(pack_complete: bool, campaign_done: bool, filled_pips: int = 0) -> 
 	elif pack_complete:
 		next_btn.text = "Next pack"
 	else:
-		next_btn.text = "Next"
+		next_btn.text = ""
 	_set_pips(filled_pips)
 	_reset_visuals()
 	_play_fanfare()
@@ -114,7 +114,7 @@ func _build() -> void:
 	add_child(_root)
 
 	_dim = ColorRect.new()
-	_dim.color = Color(0.05, 0.04, 0.08, 0.52)
+	_dim.color = Color(0.05, 0.04, 0.08, 0.36)
 	_dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	_fill(_dim)
 	_root.add_child(_dim)
@@ -132,9 +132,9 @@ func _build() -> void:
 	_glow.offset_bottom = 0.0
 	_root.add_child(_glow)
 
-	_burst = _fanfare_layer(TEX_BURST, 0.30, 0.02)
-	_peak = _fanfare_layer(TEX_PEAK, 0.30, 0.16)
-	_idle = _fanfare_layer(TEX_IDLE, 0.30, 0.16)
+	_burst = _fanfare_layer(TEX_BURST, 0.42, 0.02)
+	_peak = _fanfare_layer(TEX_PEAK, 0.42, 0.16)
+	_idle = _fanfare_layer(TEX_IDLE, 0.42, 0.16)
 	_root.add_child(_burst)
 	_root.add_child(_peak)
 	_root.add_child(_idle)
@@ -275,10 +275,10 @@ func _fanfare_layer(tex: Texture2D, crop_top: float, crop_bottom: float) -> Text
 	var mat := ShaderMaterial.new()
 	mat.shader = CHROMA
 	mat.set_shader_parameter("green_cut", 0.18)
-	mat.set_shader_parameter("black_cut", 0.11)
-	mat.set_shader_parameter("black_soft", 0.08)
-	mat.set_shader_parameter("sat_cut", 0.16)
-	mat.set_shader_parameter("sat_soft", 0.10)
+	mat.set_shader_parameter("black_cut", 0.20)
+	mat.set_shader_parameter("black_soft", 0.10)
+	mat.set_shader_parameter("sat_cut", 0.28)
+	mat.set_shader_parameter("sat_soft", 0.12)
 	mat.set_shader_parameter("crop_top", crop_top)
 	mat.set_shader_parameter("crop_bottom", crop_bottom)
 	mat.set_shader_parameter("spill", 0.4)
