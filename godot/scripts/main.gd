@@ -7,6 +7,7 @@ const CAPACITY := 4
 const TUBE_SCENE_W := 144.0
 const TUBE_SCENE_H := 282.0
 const LEVEL_TIME := 60.0
+const LEVEL_TIME_MIN := 36.0
 const PACK_CLEARS := 5
 const SFX_PICK := preload("res://assets/sfx/sfx_pick.wav")
 const SFX_POUR := preload("res://assets/sfx/sfx_pour.wav")
@@ -107,6 +108,7 @@ var _top_wash: ColorRect
 var _bottom_wash: ColorRect
 var _level_tile: Control
 var _time_tile: Control
+var _clears_tile: Control
 var _clear_pips: Array = []
 var _sfx_pick: AudioStreamPlayer
 var _sfx_pour: AudioStreamPlayer
@@ -198,8 +200,8 @@ func _build_ui() -> void:
 	add_child(_level_tile)
 	_level_label = _tile_value(_level_tile, "LEVEL", "1/10")
 
-	var clears_tile := _glass_panel(Vector2(480, 384), Vector2(216, 80), TEX_BOARD_TILE)
-	add_child(clears_tile)
+	_clears_tile = _glass_panel(Vector2(480, 384), Vector2(216, 80), TEX_BOARD_TILE)
+	add_child(_clears_tile)
 	var clears_col := VBoxContainer.new()
 	clears_col.set_anchors_preset(PRESET_FULL_RECT)
 	clears_col.offset_left = 0.0
@@ -208,7 +210,7 @@ func _build_ui() -> void:
 	clears_col.offset_bottom = 0.0
 	clears_col.alignment = BoxContainer.ALIGNMENT_CENTER
 	clears_col.add_theme_constant_override("separation", 4)
-	clears_tile.add_child(clears_col)
+	_clears_tile.add_child(clears_col)
 	var clears_cap := Label.new()
 	clears_cap.text = "CLEARS"
 	clears_cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -517,7 +519,7 @@ func _show_title() -> void:
 	_set_hint_visible(false)
 	if _status != null:
 		_status.visible = false
-	time_left = LEVEL_TIME
+	time_left = _level_clock()
 	_update_timer_hud()
 	_start_title_pulse()
 
@@ -536,7 +538,7 @@ func _begin_session() -> void:
 		_title_prompt.scale = Vector2.ONE
 	if _tube_row != null:
 		_tube_row.visible = true
-	time_left = LEVEL_TIME
+	time_left = _level_clock()
 	_set_hint_visible(true)
 	_play_sfx(_sfx_next)
 
@@ -960,16 +962,17 @@ func _refresh_clears_label() -> void:
 		var on: bool = i < filled
 		var next_col := Color(UI_HERO.r, UI_HERO.g, UI_HERO.b, 1.0) if on else Color(0.14, 0.08, 0.06, 0.95)
 		if on and pip.color.r < 0.5:
-			pip.scale = Vector2(1.35, 1.35)
+			pip.scale = Vector2(1.55, 1.55)
 			var tw: Tween = create_tween()
-			tw.tween_property(pip, "scale", Vector2.ONE, 0.14).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			tw.tween_property(pip, "scale", Vector2.ONE, 0.20).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			_punch_clears_tile()
 		pip.color = next_col
 
 func _update_timer_hud() -> void:
 	if _time_label == null:
 		return
 	if not _session_live:
-		_time_label.text = str(int(LEVEL_TIME))
+		_time_label.text = str(int(round(_level_clock())))
 		_time_label.modulate = UI_NUM
 		_time_label.scale = Vector2.ONE
 		return
@@ -983,14 +986,24 @@ func _update_timer_hud() -> void:
 		_time_label.modulate = UI_NUM
 		_time_label.scale = Vector2.ONE
 		return
-	if time_left <= 10.0:
+	var warn: float = 10.0
+	if level_index >= PACK_CLEARS:
+		warn = 12.0
+	if time_left <= warn:
 		var wave: float = 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.001 * TAU)
-		var pulse: float = lerpf(1.0, 1.08, wave)
+		var pulse: float = lerpf(1.0, 1.12, wave)
 		_time_label.scale = Vector2(pulse, pulse)
-		_time_label.modulate = UI_HERO.lerp(UI_NUM, wave * 0.28)
+		_time_label.modulate = UI_HERO.lerp(UI_NUM, wave * 0.22)
 	else:
 		_time_label.modulate = UI_NUM
 		_time_label.scale = Vector2.ONE
+
+func _level_clock() -> float:
+	if level_index < PACK_CLEARS:
+		return LEVEL_TIME
+	var span: int = maxi(LEVELS.size() - PACK_CLEARS, 1)
+	var t: float = float(level_index - PACK_CLEARS) / float(maxi(span - 1, 1))
+	return lerpf(54.0, LEVEL_TIME_MIN, clampf(t, 0.0, 1.0))
 
 func _tick_level_tile() -> void:
 	if _level_tile == null:
@@ -999,6 +1012,28 @@ func _tick_level_tile() -> void:
 	_level_tile.scale = Vector2(1.08, 1.08)
 	var tw: Tween = create_tween()
 	tw.tween_property(_level_tile, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+func _punch_clears_tile() -> void:
+	if _clears_tile == null:
+		return
+	_clears_tile.pivot_offset = _clears_tile.size * 0.5
+	_clears_tile.scale = Vector2(1.12, 1.12)
+	var tw: Tween = create_tween()
+	tw.tween_property(_clears_tile, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+func _punch_combo_hud(n: int) -> void:
+	if _time_tile != null:
+		_time_tile.pivot_offset = _time_tile.size * 0.5
+		_time_tile.scale = Vector2(1.10, 1.10)
+		var tw: Tween = create_tween()
+		tw.tween_property(_time_tile, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	if n >= 3 and _level_tile != null:
+		_tick_level_tile()
+	if _chips_num != null:
+		_chips_num.pivot_offset = _chips_num.size * 0.5
+		_chips_num.scale = Vector2(1.16, 1.16)
+		var ct: Tween = create_tween()
+		ct.tween_property(_chips_num, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func _load_level(i: int) -> void:
 	level_index = clampi(i, 0, LEVELS.size() - 1)
@@ -1009,7 +1044,7 @@ func _load_level(i: int) -> void:
 	lost = false
 	_pour_busy = false
 	_extra_well_used = false
-	time_left = LEVEL_TIME
+	time_left = _level_clock()
 	combo_peak = 0
 	_reset_combo()
 	_dismiss_win_overlay()
@@ -1209,19 +1244,27 @@ func _bezier2(a: Vector2, b: Vector2, c: Vector2, t: float) -> Vector2:
 func _float_combo(tube_i: int, n: int) -> void:
 	if n < 2 or tube_i < 0 or tube_i >= _tube_views.size():
 		return
-	var at: Vector2 = _tube_views[tube_i].mouth_global_pos() - global_position + Vector2(-12.0, -28.0)
+	var at: Vector2 = _tube_views[tube_i].mouth_global_pos() - global_position + Vector2(-28.0, -36.0)
 	var lab := Label.new()
 	lab.text = "x%d" % n
-	lab.add_theme_font_size_override("font_size", 30)
-	lab.add_theme_color_override("font_color", UI_CAPTION)
+	lab.add_theme_font_override("font", HINT_FONT)
+	lab.add_theme_font_size_override("font_size", 44 + mini(n, 6) * 2)
+	lab.add_theme_color_override("font_color", UI_HERO if n >= 3 else UI_CAPTION)
+	lab.add_theme_color_override("font_outline_color", UI_ESPRESSO)
+	lab.add_theme_constant_override("outline_size", 6)
 	lab.position = at
 	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lab.pivot_offset = Vector2(36.0, 20.0)
+	lab.scale = Vector2(0.72, 0.72)
 	add_child(lab)
+	var rise: float = 56.0 + float(mini(n, 6)) * 4.0
 	var tw: Tween = create_tween()
 	tw.set_parallel(true)
-	tw.tween_property(lab, "position:y", at.y - 40.0, 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tw.tween_property(lab, "modulate:a", 0.0, 0.35)
+	tw.tween_property(lab, "position:y", at.y - rise, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(lab, "scale", Vector2(1.18, 1.18), 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(lab, "modulate:a", 0.0, 0.55).set_delay(0.12)
 	tw.chain().tween_callback(lab.queue_free)
+	_punch_combo_hud(n)
 
 func _try_pour(src_i: int, dst_i: int) -> bool:
 	var src: Array = tubes[src_i]
@@ -1283,7 +1326,7 @@ func _on_win() -> void:
 	if _logo != null:
 		_logo.play_pop()
 	_punch_clear()
-	_burst_at_center(Color(UI_RIM.r, UI_RIM.g, UI_RIM.b, 1.0), 22)
+	_burst_at_center(Color(UI_RIM.r, UI_RIM.g, UI_RIM.b, 1.0), 36)
 	_bounce_full_tubes()
 
 func _bounce_full_tubes() -> void:
