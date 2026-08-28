@@ -18,15 +18,17 @@ const VIEW_H := 1280.0
 const PIP_SIZE := 20.0
 const PIP_GAP := 12.0
 const PIP_COUNT := 5
-# Source-space Y on the 1536×1024 stills, mapped through contain-fit.
-# Under CLEARED feet (~y 355) / COMPLETE feet (~y 496). Not viewport 432.
-const PIP_CLEARED_SRC_Y := 372.0
-const PIP_PACK_SRC_Y := 520.0
-# Baked Next plaque on the landscape stills.
-const NEXT_SRC_X0 := 368.0
-const NEXT_SRC_X1 := 1168.0
-const NEXT_SRC_Y0 := 836.0
-const NEXT_SRC_Y1 := 1024.0
+# Source-space Y on the native portrait stills, mapped through contain-fit.
+# Under the wooden sign, below CLEARED / COMPLETE letters — not on glyphs.
+const PIP_CLEARED_SRC_Y := 232.0
+const PIP_PACK_SRC_Y := 256.0
+# Baked wood+icing Next plaque (CLEARED 720×1033, PACK 720×1002).
+const NEXT_SRC_X0 := 90.0
+const NEXT_SRC_X1 := 630.0
+const NEXT_CLEARED_Y0 := 820.0
+const NEXT_CLEARED_Y1 := 1010.0
+const NEXT_PACK_Y0 := 775.0
+const NEXT_PACK_Y1 := 965.0
 const UI_CAPTION := Color8(243, 230, 216)
 const UI_HERO := Color8(224, 122, 74)
 const UI_ESPRESSO := Color8(59, 30, 22, 255)
@@ -69,8 +71,8 @@ func present(pack_complete: bool, campaign_done: bool, filled_pips: int = 0) -> 
 	dismiss()
 	_showing = true
 	visible = true
-	# Full uncropped 1536×1024 stills, contain-fit (KEEP_ASPECT_CENTERED).
-	# Cafe bars until native 9:16. No cover-crop, chroma, inpaint, or second word.
+	# Native portrait CLEARED / PACK stills. KEEP_ASPECT_CENTERED on the
+	# viewport rect shows the whole texture (cafe bars if the still is short).
 	_pack_mode = pack_complete or campaign_done
 	_hero.texture = TEX_PACK if _pack_mode else TEX_HERO
 	_hero.material = null
@@ -116,8 +118,8 @@ func _build() -> void:
 	_fill(_cover)
 	_root.add_child(_cover)
 
-	# Full uncropped CLEARED / PACK still. KEEP_ASPECT_CENTERED on the
-	# viewport rect shows the whole 1536×1024 texture (letterbox bars OK).
+	# Native portrait stills. KEEP_ASPECT_CENTERED on the viewport rect
+	# shows the whole texture. No COVER crop, no STRETCH_SCALE.
 	_hero = TextureRect.new()
 	_hero.texture = TEX_HERO
 	_hero.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -188,7 +190,7 @@ func _still_rect() -> Rect2:
 		var vis := get_viewport().get_visible_rect().size
 		if vis.x > 1.0 and vis.y > 1.0:
 			vs = vis
-	var tex_sz := Vector2(1536.0, 1024.0)
+	var tex_sz := Vector2(720.0, 1280.0)
 	if _hero != null and _hero.texture != null:
 		tex_sz = _hero.texture.get_size()
 	if tex_sz.x < 1.0 or tex_sz.y < 1.0:
@@ -201,7 +203,7 @@ func _still_rect() -> Rect2:
 
 func _layout_chrome() -> void:
 	var r: Rect2 = _still_rect()
-	var tex_sz := Vector2(1536.0, 1024.0)
+	var tex_sz := Vector2(720.0, 1280.0)
 	if _hero != null and _hero.texture != null:
 		tex_sz = _hero.texture.get_size()
 	if tex_sz.x < 1.0 or tex_sz.y < 1.0:
@@ -218,10 +220,12 @@ func _layout_chrome() -> void:
 		pip.offset_right = x + PIP_SIZE
 		pip.offset_bottom = pip_y + PIP_SIZE
 	if next_btn != null:
+		var ny0_src: float = NEXT_PACK_Y0 if _pack_mode else NEXT_CLEARED_Y0
+		var ny1_src: float = NEXT_PACK_Y1 if _pack_mode else NEXT_CLEARED_Y1
 		var nx0: float = r.position.x + NEXT_SRC_X0 / tex_sz.x * r.size.x
 		var nx1: float = r.position.x + NEXT_SRC_X1 / tex_sz.x * r.size.x
-		var ny0: float = r.position.y + NEXT_SRC_Y0 / tex_sz.y * r.size.y
-		var ny1: float = r.position.y + NEXT_SRC_Y1 / tex_sz.y * r.size.y
+		var ny0: float = r.position.y + ny0_src / tex_sz.y * r.size.y
+		var ny1: float = r.position.y + ny1_src / tex_sz.y * r.size.y
 		next_btn.offset_left = nx0
 		next_btn.offset_right = nx1
 		next_btn.offset_top = ny0
