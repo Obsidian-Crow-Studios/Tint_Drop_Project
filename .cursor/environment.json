@@ -1,0 +1,4 @@
+{
+  "name": "Tint Drop",
+  "install": "bash .cursor/install.sh"
+}
