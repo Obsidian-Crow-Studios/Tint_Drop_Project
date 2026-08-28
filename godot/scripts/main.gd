@@ -879,6 +879,13 @@ func _run_overlay_capture() -> void:
 	_set_live_play_visible(false)
 	if _win_overlay != null:
 		_win_overlay.present(pack_done, false, filled)
+	# Default snap is post-fanfare idle (hue spray on). Celebrate is the
+	# 7s window before _enter_idle; used to prove spray is not on yet.
+	var phase: String = OS.get_environment("TINT_DROP_CAPTURE_PHASE")
+	if phase == "celebrate":
+		await get_tree().create_timer(0.40).timeout
+	else:
+		await get_tree().create_timer(WinOverlay.FANFARE_S + 0.45).timeout
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var tex: ViewportTexture = get_viewport().get_texture()

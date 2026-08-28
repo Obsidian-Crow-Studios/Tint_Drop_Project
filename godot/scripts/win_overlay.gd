@@ -88,10 +88,9 @@ func present(pack_complete: bool, campaign_done: bool, filled_pips: int = 0) -> 
 	set_process(false)
 	for bit in _spray_bits:
 		bit.visible = false
-	if _is_capture():
-		_snap_idle()
-	else:
-		_run_sequence()
+	# Live and capture share the greenlight sequence: 7s celebrate, then
+	# idle hue spray until Next. Capture skips fanfare/cheer audio only.
+	_run_sequence()
 
 
 func dismiss() -> void:
@@ -111,7 +110,8 @@ func _build() -> void:
 	_fill(_root)
 	add_child(_root)
 
-	# Cafe bars behind a contain-fit landscape still. Do not cover-crop.
+	# Cafe fill behind contain-fit 9:16 stills (shorter than 720×1280).
+	# Do not cover-crop.
 	_cover = ColorRect.new()
 	_cover.color = Color(0.22, 0.11, 0.07, 1.0)
 	_cover.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -305,16 +305,9 @@ func _reset_visuals() -> void:
 	_seed_spray_bits()
 
 
-func _snap_idle() -> void:
-	_hero.modulate = Color(1, 1, 1, 1)
-	next_btn.modulate = Color(1, 1, 1, 1)
-	next_btn.disabled = false
-	_spray_moving = false
-	for bit in _spray_bits:
-		bit.visible = false
-
-
 func _seed_spray_bits() -> void:
+	if _is_capture():
+		seed(7)
 	var origins: Array[Vector2] = [
 		Vector2(210.0, 700.0),
 		Vector2(360.0, 680.0),
@@ -385,6 +378,8 @@ func _play_idle_cheer() -> void:
 	if _fanfare != null:
 		_fanfare.stop()
 	fanfare_ended.emit()
+	if _is_capture():
+		return
 	if _cheer == null or _cheer.stream == null:
 		return
 	_cheer.stop()
