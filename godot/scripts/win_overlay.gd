@@ -5,6 +5,7 @@ signal next_pressed
 signal fanfare_ended
 
 const TEX_HERO := preload("res://assets/ui/win/win-fanfare-cleared.png")
+const TEX_PACK := preload("res://assets/ui/win/win-fanfare-pack.png")
 const TEX_PIP_EMPTY := preload("res://assets/ui/pip_empty_20.png")
 const TEX_PIP_LIT := preload("res://assets/ui/pip_lit_20.png")
 const SFX_FANFARE := preload("res://assets/sfx/sfx_clear_fanfare.wav")
@@ -57,13 +58,14 @@ func is_showing() -> bool:
 	return _showing
 
 
-func present(_pack_complete: bool, campaign_done: bool, filled_pips: int = 0) -> void:
+func present(pack_complete: bool, campaign_done: bool, filled_pips: int = 0) -> void:
 	dismiss()
 	_showing = true
 	visible = true
-	# PACK COMPLETE uses the same full-bleed CLEARED still. No second word,
-	# hide_gel, inpaint, or pack-hero bake. The gel may still say CLEARED.
-	_hero.texture = TEX_HERO
+	# PACK COMPLETE is the Art Director 720×1280 still. CLEARED is the lock
+	# still. No second gel word, hide_gel, inpaint, or pack-hero bake.
+	var show_pack: bool = pack_complete or campaign_done
+	_hero.texture = TEX_PACK if show_pack else TEX_HERO
 	_hero.material = null
 	if campaign_done:
 		next_btn.text = "Again"
@@ -107,9 +109,8 @@ func _build() -> void:
 	_fill(_cover)
 	_root.add_child(_cover)
 
-	# One extra-crowd CLEARED still for both CLEARED and PACK COMPLETE.
-	# Full texture, no atlas band, no chroma, no second gel word.
-	# KEEP_ASPECT_CENTERED on a rect sized to cover the viewport.
+	# Full extra-crowd still (CLEARED or PACK). Cover-fit KEEP_ASPECT_CENTERED.
+	# No atlas band, chroma, or second gel word.
 	_hero = TextureRect.new()
 	_hero.texture = TEX_HERO
 	_hero.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
