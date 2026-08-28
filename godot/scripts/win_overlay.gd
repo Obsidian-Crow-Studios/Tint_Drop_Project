@@ -18,9 +18,15 @@ const VIEW_H := 1280.0
 const PIP_SIZE := 20.0
 const PIP_GAP := 12.0
 const PIP_COUNT := 5
-const PIP_TOP := 432.0
-const NEXT_H := 188.0
-const NEXT_BOTTOM_PAD := 12.0
+# Source-space Y on the 1536×1024 stills, mapped through contain-fit.
+# Under CLEARED feet (~y 355) / COMPLETE feet (~y 496). Not viewport 432.
+const PIP_CLEARED_SRC_Y := 372.0
+const PIP_PACK_SRC_Y := 520.0
+# Baked Next plaque on the landscape stills.
+const NEXT_SRC_X0 := 368.0
+const NEXT_SRC_X1 := 1168.0
+const NEXT_SRC_Y0 := 836.0
+const NEXT_SRC_Y1 := 1024.0
 const UI_CAPTION := Color8(243, 230, 216)
 const UI_HERO := Color8(224, 122, 74)
 const UI_ESPRESSO := Color8(59, 30, 22, 255)
@@ -44,6 +50,7 @@ var _cheer: AudioStreamPlayer
 var _seq: Tween
 var _spray_moving: bool = false
 var _showing: bool = false
+var _pack_mode: bool = false
 
 
 func _ready() -> void:
@@ -62,10 +69,10 @@ func present(pack_complete: bool, campaign_done: bool, filled_pips: int = 0) -> 
 	dismiss()
 	_showing = true
 	visible = true
-	# PACK COMPLETE is the Art Director 720×1280 still. CLEARED is the lock
-	# still. No second gel word, hide_gel, inpaint, or pack-hero bake.
-	var show_pack: bool = pack_complete or campaign_done
-	_hero.texture = TEX_PACK if show_pack else TEX_HERO
+	# Full uncropped 1536×1024 stills, contain-fit (KEEP_ASPECT_CENTERED).
+	# Cafe bars until native 9:16. No cover-crop, chroma, inpaint, or second word.
+	_pack_mode = pack_complete or campaign_done
+	_hero.texture = TEX_PACK if _pack_mode else TEX_HERO
 	_hero.material = null
 	if campaign_done:
 		next_btn.text = "Again"
@@ -102,27 +109,23 @@ func _build() -> void:
 	_fill(_root)
 	add_child(_root)
 
-	# Fallback only — the extra-crowd still must cover the 720×1280 frame.
+	# Cafe bars behind a contain-fit landscape still. Do not cover-crop.
 	_cover = ColorRect.new()
 	_cover.color = Color(0.22, 0.11, 0.07, 1.0)
 	_cover.mouse_filter = Control.MOUSE_FILTER_STOP
 	_fill(_cover)
 	_root.add_child(_cover)
 
-	# Full extra-crowd still (CLEARED or PACK). Cover-fit KEEP_ASPECT_CENTERED.
-	# No atlas band, chroma, or second gel word.
+	# Full uncropped CLEARED / PACK still. KEEP_ASPECT_CENTERED on the
+	# viewport rect shows the whole 1536×1024 texture (letterbox bars OK).
 	_hero = TextureRect.new()
 	_hero.texture = TEX_HERO
 	_hero.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_hero.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_hero.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hero.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	_hero.anchor_left = 0.5
-	_hero.anchor_right = 0.5
-	_hero.anchor_top = 0.5
-	_hero.anchor_bottom = 0.5
+	_fill(_hero)
 	_root.add_child(_hero)
-	_fit_hero()
 
 	_spray_host = Control.new()
 	_spray_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -132,18 +135,13 @@ func _build() -> void:
 
 	_build_overlay_pips()
 
-	# Click target over the still's baked wood+icing Next. No second plaque.
+	# Invisible click target over the still's baked wood+icing Next.
 	next_btn = Button.new()
 	next_btn.text = ""
-	next_btn.anchor_left = 0.5
-	next_btn.anchor_right = 0.5
-	next_btn.anchor_top = 1.0
-	next_btn.anchor_bottom = 1.0
-	next_btn.offset_left = -300.0
-	next_btn.offset_right = 300.0
-	next_btn.offset_top = -(NEXT_H + NEXT_BOTTOM_PAD)
-	next_btn.offset_bottom = -NEXT_BOTTOM_PAD
-	next_btn.custom_minimum_size = Vector2(600.0, NEXT_H)
+	next_btn.anchor_left = 0.0
+	next_btn.anchor_right = 0.0
+	next_btn.anchor_top = 0.0
+	next_btn.anchor_bottom = 0.0
 	next_btn.add_theme_font_override("font", HINT_FONT)
 	next_btn.add_theme_font_size_override("font_size", 36)
 	next_btn.add_theme_color_override("font_color", UI_CAPTION)
@@ -160,6 +158,7 @@ func _build() -> void:
 	next_btn.add_theme_stylebox_override("disabled", empty)
 	next_btn.pressed.connect(_on_next_pressed)
 	_root.add_child(next_btn)
+	_fit_hero()
 
 	_fanfare = AudioStreamPlayer.new()
 	_fanfare.stream = SFX_FANFARE
@@ -177,23 +176,57 @@ func _build() -> void:
 
 
 func _fit_hero() -> void:
-	if _hero == null or _hero.texture == null:
+	if _hero == null:
 		return
+	_fill(_hero)
+	_layout_chrome()
+
+
+func _still_rect() -> Rect2:
 	var vs := Vector2(VIEW_W, VIEW_H)
 	if is_inside_tree():
 		var vis := get_viewport().get_visible_rect().size
 		if vis.x > 1.0 and vis.y > 1.0:
 			vs = vis
-	var tex_sz: Vector2 = _hero.texture.get_size()
+	var tex_sz := Vector2(1536.0, 1024.0)
+	if _hero != null and _hero.texture != null:
+		tex_sz = _hero.texture.get_size()
 	if tex_sz.x < 1.0 or tex_sz.y < 1.0:
-		return
-	var s: float = maxf(vs.x / tex_sz.x, vs.y / tex_sz.y)
+		return Rect2(0.0, 0.0, vs.x, vs.y)
+	var s: float = minf(vs.x / tex_sz.x, vs.y / tex_sz.y)
 	var dw: float = tex_sz.x * s
 	var dh: float = tex_sz.y * s
-	_hero.offset_left = -dw * 0.5
-	_hero.offset_right = dw * 0.5
-	_hero.offset_top = -dh * 0.5
-	_hero.offset_bottom = dh * 0.5
+	return Rect2((vs.x - dw) * 0.5, (vs.y - dh) * 0.5, dw, dh)
+
+
+func _layout_chrome() -> void:
+	var r: Rect2 = _still_rect()
+	var tex_sz := Vector2(1536.0, 1024.0)
+	if _hero != null and _hero.texture != null:
+		tex_sz = _hero.texture.get_size()
+	if tex_sz.x < 1.0 or tex_sz.y < 1.0:
+		return
+	var src_y: float = PIP_PACK_SRC_Y if _pack_mode else PIP_CLEARED_SRC_Y
+	var pip_y: float = r.position.y + src_y / tex_sz.y * r.size.y
+	var total: float = PIP_SIZE * float(PIP_COUNT) + PIP_GAP * float(PIP_COUNT - 1)
+	var x0: float = r.position.x + (r.size.x - total) * 0.5
+	for i in _pips.size():
+		var pip: TextureRect = _pips[i]
+		var x: float = x0 + float(i) * (PIP_SIZE + PIP_GAP)
+		pip.offset_left = x
+		pip.offset_top = pip_y
+		pip.offset_right = x + PIP_SIZE
+		pip.offset_bottom = pip_y + PIP_SIZE
+	if next_btn != null:
+		var nx0: float = r.position.x + NEXT_SRC_X0 / tex_sz.x * r.size.x
+		var nx1: float = r.position.x + NEXT_SRC_X1 / tex_sz.x * r.size.x
+		var ny0: float = r.position.y + NEXT_SRC_Y0 / tex_sz.y * r.size.y
+		var ny1: float = r.position.y + NEXT_SRC_Y1 / tex_sz.y * r.size.y
+		next_btn.offset_left = nx0
+		next_btn.offset_right = nx1
+		next_btn.offset_top = ny0
+		next_btn.offset_bottom = ny1
+		next_btn.custom_minimum_size = Vector2(nx1 - nx0, ny1 - ny0)
 
 
 func _fill(node: Control) -> void:
@@ -211,7 +244,6 @@ func _build_overlay_pips() -> void:
 	_pips.clear()
 	var total: float = PIP_SIZE * float(PIP_COUNT) + PIP_GAP * float(PIP_COUNT - 1)
 	var x0: float = (VIEW_W - total) * 0.5
-	var y: float = PIP_TOP
 	for i in PIP_COUNT:
 		var pip := TextureRect.new()
 		pip.texture = TEX_PIP_EMPTY
@@ -225,9 +257,9 @@ func _build_overlay_pips() -> void:
 		pip.anchor_bottom = 0.0
 		var x: float = x0 + float(i) * (PIP_SIZE + PIP_GAP)
 		pip.offset_left = x
-		pip.offset_top = y
+		pip.offset_top = 0.0
 		pip.offset_right = x + PIP_SIZE
-		pip.offset_bottom = y + PIP_SIZE
+		pip.offset_bottom = PIP_SIZE
 		pip.custom_minimum_size = Vector2(PIP_SIZE, PIP_SIZE)
 		pip.pivot_offset = Vector2(PIP_SIZE * 0.5, PIP_SIZE * 0.5)
 		_root.add_child(pip)
