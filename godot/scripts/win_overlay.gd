@@ -20,9 +20,9 @@ const PIP_SIZE := 20.0
 const PIP_GAP := 12.0
 const PIP_COUNT := 5
 const PIP_TOP := 432.0
-# Same slot as baked CLEARED glyphs (y≈88–420), above the pip row.
+# Natural aspect of pack-complete-word atlas (1427×214 → 720×108).
 const WORD_TOP := 88.0
-const WORD_H := 332.0
+const WORD_H := 108.0
 const WORD_HALF_W := 360.0
 const NEXT_H := 188.0
 const NEXT_BOTTOM_PAD := 12.0
@@ -140,7 +140,7 @@ func _build() -> void:
 	# of baked CLEARED glyphs in this same still. No second plate, no y_cut.
 	_word = _keyed_rect(_atlas(TEX_PACK, Rect2(65, 405, 1427, 214)))
 	_word.visible = false
-	_word.stretch_mode = TextureRect.STRETCH_SCALE
+	_word.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_word.anchor_left = 0.5
 	_word.anchor_right = 0.5
 	_word.anchor_top = 0.0
@@ -451,14 +451,17 @@ func _on_next_pressed() -> void:
 
 
 # PACK COMPLETE hero: same cafe still as CLEARED with only baked glyph
-# pixels removed. Detectors run per chroma so orange sunburst cannot
-# 8-connect E+A+R into one full-width plate. Reject any CC that spans
-# the frame. Dilate 3px, no morphological close, no y_cut / y=0 copy.
+# pixels removed. Per-chroma CCs, hole-fill per letter (never the union),
+# reject frame-edge slivers. Dilate 2px. No y_cut / y=0 copy. If the union
+# still paints a plate (any row ≥85% wide), refuse the bake.
 const _BAKE_Y0 := 82
 const _BAKE_Y1 := 428
 const _BAKE_MIN_CC := 8000
-const _BAKE_DILATE := 3
-const _BAKE_SMOOTH := 8
+const _BAKE_MAX_W := 680
+const _BAKE_DILATE := 2
+const _BAKE_SMOOTH := 10
+const _BAKE_GAP_Y := 420
+const _BAKE_RIGHT := 700
 
 
 func _bake_pack_hero() -> Texture2D:
@@ -479,9 +482,10 @@ func _bake_pack_hero() -> Texture2D:
 	var n: int = w * h
 	var y0: int = mini(_BAKE_Y0, h - 2)
 	var y1: int = mini(_BAKE_Y1, h - 1)
-	var max_w: int = w - 8
-	var cores := PackedByteArray()
-	cores.resize(n)
+	var gel_any := PackedByteArray()
+	gel_any.resize(n)
+	var filled := PackedByteArray()
+	filled.resize(n)
 	for kind in 3:
 		var seed := PackedByteArray()
 		seed.resize(n)
@@ -499,12 +503,24 @@ func _bake_pack_hero() -> Texture2D:
 					hit = _gel_orange(c)
 				if hit:
 					seed[row + x] = 1
-		var kept: PackedByteArray = _keep_letter_ccs(seed, w, h, y0, y1, _BAKE_MIN_CC, max_w)
+					gel_any[row + x] = 1
+		var kept: PackedByteArray = _keep_letter_ccs(seed, w, h, y0, y1, _BAKE_MIN_CC, _BAKE_MAX_W)
 		for i2 in n:
 			if kept[i2] != 0:
-				cores[i2] = 1
-	_fill_holes(cores, w, h, y0, y1)
+				filled[i2] = 1
+	var cores: PackedByteArray = filled.duplicate()
 	_morph(cores, w, h, y0, y1, _BAKE_DILATE, true)
+	# Dilate must not paint the pip-gap or the right-edge sunburst sliver.
+	var gap_y: int = mini(_BAKE_GAP_Y, y1 + 1)
+	for y in range(gap_y, y1 + 1):
+		var row: int = y * w
+		for x in range(w):
+			cores[row + x] = filled[row + x]
+	var right: int = mini(_BAKE_RIGHT, w)
+	for y in range(y0, y1 + 1):
+		var row: int = y * w
+		for x in range(right, w):
+			cores[row + x] = 0
 	for y in range(h):
 		if y >= y0 and y <= y1:
 			continue
@@ -516,19 +532,31 @@ func _bake_pack_hero() -> Texture2D:
 	var maxx: int = 0
 	var miny: int = h
 	var maxy: int = 0
+	var wide_rows: int = 0
 	for y in range(y0, y1 + 1):
 		var row: int = y * w
+		var occ: int = 0
 		for x in range(w):
 			if cores[row + x] == 0:
 				continue
+			occ += 1
 			mask_n += 1
 			minx = mini(minx, x)
 			maxx = maxi(maxx, x)
 			miny = mini(miny, y)
 			maxy = maxi(maxy, y)
-	print("WinOverlay: glyph mask ", mask_n, " px bbox x=", minx, "-", maxx, " y=", miny, "-", maxy, " w=", (maxx - minx + 1) if mask_n > 0 else 0)
+		if occ * 100 >= w * 85:
+			wide_rows += 1
+	print(
+		"WinOverlay: glyph mask ", mask_n, " px bbox x=", minx, "-", maxx,
+		" y=", miny, "-", maxy, " w=", (maxx - minx + 1) if mask_n > 0 else 0,
+		" rows>=85% ", wide_rows
+	)
+	if wide_rows > 0:
+		push_warning("WinOverlay: refuse union plate (letter mask must stay glyph-shaped).")
+		return TEX_HERO
 	if mask_n > 0:
-		_inpaint_known(src, cores, w, h, y0, y1)
+		_inpaint_cafe(src, cores, gel_any, w, h, y0, y1)
 	img.set_data(w, h, false, Image.FORMAT_RGBA8, src)
 	var tex := ImageTexture.create_from_image(img)
 	print("WinOverlay: pack hero bake ", Time.get_ticks_msec() - t0, " ms")
@@ -618,12 +646,20 @@ func _keep_letter_ccs(seed: PackedByteArray, w: int, h: int, y0: int, y1: int, m
 				miny = mini(miny, cy)
 				maxy = maxi(maxy, cy)
 			var cw: int = maxx - minx + 1
-			if cw >= max_width:
-				print("WinOverlay: reject full-width CC n=", comp.size(), " w=", cw, " x=", minx, "-", maxx)
+			# Frame-edge CCs (right-edge orange sliver to x=719) are sunburst,
+			# not glyphs. Hole-fill is per-letter so C-L-E-A-R-E-D gaps stay.
+			if cw >= max_width or minx <= 0 or maxx >= w - 1:
+				print("WinOverlay: reject CC n=", comp.size(), " w=", cw, " x=", minx, "-", maxx)
 				continue
 			print("WinOverlay: keep glyph CC n=", comp.size(), " w=", cw, " x=", minx, "-", maxx, " y=", miny, "-", maxy)
+			var one := PackedByteArray()
+			one.resize(n)
 			for p3 in comp:
-				out[p3] = 1
+				one[p3] = 1
+			_fill_holes(one, w, h, y0, y1)
+			for p4 in n:
+				if one[p4] != 0:
+					out[p4] = 1
 	return out
 
 
@@ -706,21 +742,31 @@ func _morph(mask: PackedByteArray, w: int, h: int, y0: int, y1: int, iterations:
 				mask[row + x] = nxt[row + x]
 
 
-func _inpaint_known(src: PackedByteArray, mask: PackedByteArray, w: int, h: int, y0: int, y1: int) -> void:
-	# Onion-peel from the letter outline using nearby already-known pixels, then
-	# a few 8-neighbor smooth passes on the mask only. Unmasked bytes stay source.
+func _inpaint_cafe(
+	src: PackedByteArray,
+	mask: PackedByteArray,
+	gel: PackedByteArray,
+	w: int,
+	h: int,
+	y0: int,
+	y1: int,
+) -> void:
+	# Onion-peel from cafe/sunburst only. Gel-colored unmasked pixels (leftover
+	# outlines, confetti) are not sources — those re-seed CLEARED gel into
+	# letter interiors. Once a mask pixel is filled from cafe, it becomes a
+	# source. Unmasked bytes stay the original still.
 	var n: int = w * h
 	var known := PackedByteArray()
 	known.resize(n)
 	for i in n:
-		known[i] = 0 if mask[i] != 0 else 1
+		known[i] = 1 if (mask[i] == 0 and gel[i] == 0) else 0
 	var queue := PackedInt32Array()
 	var queued := PackedByteArray()
 	queued.resize(n)
 	for y in range(y0, y1 + 1):
 		for x in range(w):
 			var p: int = y * w + x
-			if known[p] != 0:
+			if mask[p] == 0 or known[p] != 0:
 				continue
 			if _has_known_neigh(known, w, y0, y1, x, y):
 				queued[p] = 1
@@ -731,7 +777,7 @@ func _inpaint_known(src: PackedByteArray, mask: PackedByteArray, w: int, h: int,
 		qh += 1
 		var x: int = p % w
 		var y: int = int(p / w)
-		if known[p] != 0:
+		if mask[p] == 0 or known[p] != 0:
 			continue
 		var sr: int = 0
 		var sg: int = 0
@@ -753,11 +799,12 @@ func _inpaint_known(src: PackedByteArray, mask: PackedByteArray, w: int, h: int,
 				sg += src[i + 1]
 				sb += src[i + 2]
 				cnt += 1
+		if cnt == 0:
+			continue
 		var i0: int = p * 4
-		if cnt > 0:
-			src[i0] = int(float(sr) / float(cnt) + 0.5)
-			src[i0 + 1] = int(float(sg) / float(cnt) + 0.5)
-			src[i0 + 2] = int(float(sb) / float(cnt) + 0.5)
+		src[i0] = int(float(sr) / float(cnt) + 0.5)
+		src[i0 + 1] = int(float(sg) / float(cnt) + 0.5)
+		src[i0 + 2] = int(float(sb) / float(cnt) + 0.5)
 		known[p] = 1
 		for dy in range(-1, 2):
 			for dx in range(-1, 2):
@@ -768,10 +815,12 @@ func _inpaint_known(src: PackedByteArray, mask: PackedByteArray, w: int, h: int,
 				if nx < 0 or nx >= w or ny < y0 or ny > y1:
 					continue
 				var np: int = ny * w + nx
-				if known[np] == 0 and queued[np] == 0:
-					queued[np] = 1
-					queue.push_back(np)
+				if mask[np] == 0 or known[np] != 0 or queued[np] != 0:
+					continue
+				queued[np] = 1
+				queue.push_back(np)
 	# Smooth mask interiors so the peel does not keep a glyph-shaped seam.
+	# Skip unmasked gel neighbors so Jacobi cannot pull CLEARED color back in.
 	var tmp := PackedByteArray(src)
 	for _pass in _BAKE_SMOOTH:
 		for y in range(y0, y1 + 1):
@@ -791,7 +840,10 @@ func _inpaint_known(src: PackedByteArray, mask: PackedByteArray, w: int, h: int,
 						var ny: int = y + dy
 						if nx < 0 or nx >= w or ny < 0 or ny >= h:
 							continue
-						var i: int = (ny * w + nx) * 4
+						var np: int = ny * w + nx
+						if gel[np] != 0 and mask[np] == 0:
+							continue
+						var i: int = np * 4
 						sr += src[i]
 						sg += src[i + 1]
 						sb += src[i + 2]
