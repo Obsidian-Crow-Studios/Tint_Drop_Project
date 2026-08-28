@@ -5,7 +5,6 @@ signal next_pressed
 signal fanfare_ended
 
 const CHROMA := preload("res://shaders/chroma_key.gdshader")
-const HIDE_GEL := preload("res://shaders/hide_gel_letters.gdshader")
 const TEX_HERO := preload("res://assets/ui/win/win-fanfare-cleared.png")
 const TEX_PACK := preload("res://assets/ui/win/pack-complete-word.png")
 const TEX_PIP_EMPTY := preload("res://assets/ui/pip_empty_20.png")
@@ -41,7 +40,7 @@ var _pips: Array[TextureRect] = []
 var _root: Control
 var _cover: ColorRect
 var _hero: TextureRect
-var _hero_hide_mat: ShaderMaterial
+var _pack_hero_tex: Texture2D
 var _word: TextureRect
 var _spray_host: Control
 var _spray_bits: Array[ColorRect] = []
@@ -57,6 +56,7 @@ func _ready() -> void:
 	layer = 20
 	visible = false
 	_build()
+	_pack_hero_tex = _bake_pack_hero()
 	set_process(false)
 	get_viewport().size_changed.connect(_fit_hero)
 
@@ -70,8 +70,8 @@ func present(pack_complete: bool, campaign_done: bool, filled_pips: int = 0) -> 
 	_showing = true
 	visible = true
 	var show_pack: bool = pack_complete or campaign_done
-	_hero.texture = TEX_HERO
-	_hero.material = _hero_hide_mat if show_pack else null
+	_hero.texture = _pack_hero_tex if show_pack else TEX_HERO
+	_hero.material = null
 	_word.visible = show_pack
 	_word.texture = _atlas(TEX_PACK, Rect2(65, 405, 1427, 214))
 	if campaign_done:
@@ -134,11 +134,8 @@ func _build() -> void:
 	_root.add_child(_hero)
 	_fit_hero()
 
-	_hero_hide_mat = ShaderMaterial.new()
-	_hero_hide_mat.shader = HIDE_GEL
-
-	# Gel PACK COMPLETE only — chroma-key the letters after hiding baked CLEARED
-	# in this same still (letter-shaped copy-from-sunburst). No second plate.
+	# Gel PACK COMPLETE only — chroma-key letters after a letter-shaped inpaint
+	# of baked CLEARED glyphs in this same still. No second plate, no y_cut.
 	_word = _keyed_rect(_atlas(TEX_PACK, Rect2(65, 405, 1427, 214)))
 	_word.visible = false
 	_word.anchor_left = 0.5
@@ -448,3 +445,334 @@ func _is_capture() -> bool:
 func _on_next_pressed() -> void:
 	dismiss()
 	next_pressed.emit()
+
+
+# PACK COMPLETE hero: same cafe still as CLEARED with only the baked gel
+# glyphs removed. Mask is letter-shaped (large cyan/pink/orange CCs inside
+# the word bbox + hole-fill + 3px dilate). Fill is a local average of nearby
+# already-known pixels — never a y_cut band, luma sky wipe, or copy from y=0.
+const _BAKE_Y0 := 82
+const _BAKE_Y1 := 428
+const _BAKE_MIN_CC := 8000
+const _BAKE_CLOSE := 5
+const _BAKE_DILATE := 3
+const _BAKE_SMOOTH := 10
+
+
+func _bake_pack_hero() -> Texture2D:
+	var img: Image = TEX_HERO.get_image()
+	if img == null:
+		push_warning("WinOverlay: CLEARED still has no CPU image; pack uses raw hero.")
+		return TEX_HERO
+	if img.is_compressed():
+		img.decompress()
+	if img.get_format() != Image.FORMAT_RGBA8:
+		img.convert(Image.FORMAT_RGBA8)
+	var w: int = img.get_width()
+	var h: int = img.get_height()
+	if w < 8 or h < 8:
+		return TEX_HERO
+	var t0: int = Time.get_ticks_msec()
+	var src: PackedByteArray = img.get_data()
+	var n: int = w * h
+	var seed := PackedByteArray()
+	seed.resize(n)
+	var y0: int = mini(_BAKE_Y0, h - 2)
+	var y1: int = mini(_BAKE_Y1, h - 1)
+	for y in range(y0, y1 + 1):
+		var row: int = y * w
+		for x in range(w):
+			var i: int = (row + x) * 4
+			var c := Vector3(float(src[i]) / 255.0, float(src[i + 1]) / 255.0, float(src[i + 2]) / 255.0)
+			if _gel_cyan(c) or _gel_pink(c) or _gel_orange(c):
+				seed[row + x] = 1
+	var cores: PackedByteArray = _keep_large_ccs(seed, w, h, y0, y1, _BAKE_MIN_CC)
+	_fill_holes(cores, w, h, y0, y1)
+	_morph(cores, w, h, y0, y1, _BAKE_CLOSE, true)
+	_morph(cores, w, h, y0, y1, _BAKE_CLOSE, false)
+	_morph(cores, w, h, y0, y1, _BAKE_DILATE, true)
+	for y in range(h):
+		var row: int = y * w
+		if y < y0 or y > y1:
+			for x in range(w):
+				cores[row + x] = 0
+	_inpaint_known(src, cores, w, h, y0, y1)
+	img.set_data(w, h, false, Image.FORMAT_RGBA8, src)
+	var tex := ImageTexture.create_from_image(img)
+	print("WinOverlay: pack hero bake ", Time.get_ticks_msec() - t0, " ms")
+	return tex
+
+
+func _gel_cyan(c: Vector3) -> bool:
+	var sat: float = maxf(c.x, maxf(c.y, c.z)) - minf(c.x, minf(c.y, c.z))
+	return c.z > c.x + 0.14 and c.z > 0.33 and sat > 0.28
+
+
+func _gel_pink(c: Vector3) -> bool:
+	var sat: float = maxf(c.x, maxf(c.y, c.z)) - minf(c.x, minf(c.y, c.z))
+	var luma: float = 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z
+	return (
+		c.x > 0.45
+		and c.z > 0.22
+		and c.x > c.y + 0.08
+		and c.z > c.y - 0.05
+		and sat > 0.18
+		and luma > 0.18
+		and luma < 0.92
+		and (c.x - c.z) < 0.75
+	)
+
+
+func _gel_orange(c: Vector3) -> bool:
+	var sat: float = maxf(c.x, maxf(c.y, c.z)) - minf(c.x, minf(c.y, c.z))
+	var luma: float = 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z
+	return (
+		c.x > 0.65
+		and c.z < 0.28
+		and (c.x - c.z) > 0.55
+		and sat > 0.55
+		and luma > 0.30
+		and luma < 0.85
+	)
+
+
+func _keep_large_ccs(seed: PackedByteArray, w: int, h: int, y0: int, y1: int, min_size: int) -> PackedByteArray:
+	var n: int = w * h
+	var seen := PackedByteArray()
+	seen.resize(n)
+	var out := PackedByteArray()
+	out.resize(n)
+	var stack := PackedInt32Array()
+	var comp := PackedInt32Array()
+	for y in range(y0, y1 + 1):
+		for x in range(w):
+			var start: int = y * w + x
+			if seed[start] == 0 or seen[start] != 0:
+				continue
+			stack.clear()
+			comp.clear()
+			stack.push_back(start)
+			seen[start] = 1
+			while stack.size() > 0:
+				var p: int = stack[stack.size() - 1]
+				stack.resize(stack.size() - 1)
+				comp.push_back(p)
+				var px: int = p % w
+				var py: int = int(p / w)
+				for dy in range(-1, 2):
+					for dx in range(-1, 2):
+						if dx == 0 and dy == 0:
+							continue
+						var nx: int = px + dx
+						var ny: int = py + dy
+						if nx < 0 or nx >= w or ny < y0 or ny > y1:
+							continue
+						var np: int = ny * w + nx
+						if seed[np] == 0 or seen[np] != 0:
+							continue
+						seen[np] = 1
+						stack.push_back(np)
+			if comp.size() >= min_size:
+				for p2 in comp:
+					out[p2] = 1
+	return out
+
+
+func _fill_holes(mask: PackedByteArray, w: int, h: int, y0: int, y1: int) -> void:
+	# Flood non-mask from the bbox frame; leftover non-mask inside letters are holes.
+	var n: int = w * h
+	var reached := PackedByteArray()
+	reached.resize(n)
+	var stack := PackedInt32Array()
+	for x in range(w):
+		_try_push_outside(mask, reached, stack, w, y0, y1, x, y0)
+		_try_push_outside(mask, reached, stack, w, y0, y1, x, y1)
+	for y in range(y0, y1 + 1):
+		_try_push_outside(mask, reached, stack, w, y0, y1, 0, y)
+		_try_push_outside(mask, reached, stack, w, y0, y1, w - 1, y)
+	while stack.size() > 0:
+		var p: int = stack[stack.size() - 1]
+		stack.resize(stack.size() - 1)
+		var px: int = p % w
+		var py: int = int(p / w)
+		for dy in range(-1, 2):
+			for dx in range(-1, 2):
+				if dx == 0 and dy == 0:
+					continue
+				var nx: int = px + dx
+				var ny: int = py + dy
+				if nx < 0 or nx >= w or ny < y0 or ny > y1:
+					continue
+				var np: int = ny * w + nx
+				if mask[np] != 0 or reached[np] != 0:
+					continue
+				reached[np] = 1
+				stack.push_back(np)
+	for y in range(y0, y1 + 1):
+		var row: int = y * w
+		for x in range(w):
+			var p: int = row + x
+			if mask[p] == 0 and reached[p] == 0:
+				mask[p] = 1
+
+
+func _try_push_outside(mask: PackedByteArray, reached: PackedByteArray, stack: PackedInt32Array, w: int, y0: int, y1: int, x: int, y: int) -> void:
+	if y < y0 or y > y1 or x < 0 or x >= w:
+		return
+	var p: int = y * w + x
+	if mask[p] != 0 or reached[p] != 0:
+		return
+	reached[p] = 1
+	stack.push_back(p)
+
+
+func _morph(mask: PackedByteArray, w: int, h: int, y0: int, y1: int, iterations: int, dilate: bool) -> void:
+	var n: int = w * h
+	for _i in iterations:
+		var nxt := PackedByteArray()
+		nxt.resize(n)
+		for y in range(y0, y1 + 1):
+			for x in range(w):
+				var p: int = y * w + x
+				var any_on: bool = false
+				var any_off: bool = false
+				for dy in range(-1, 2):
+					for dx in range(-1, 2):
+						var nx: int = x + dx
+						var ny: int = y + dy
+						var v: int = 0
+						if nx >= 0 and nx < w and ny >= y0 and ny <= y1:
+							v = mask[ny * w + nx]
+						if v != 0:
+							any_on = true
+						else:
+							any_off = true
+				if dilate:
+					nxt[p] = 1 if any_on else 0
+				else:
+					nxt[p] = 0 if any_off else 1
+		for y in range(y0, y1 + 1):
+			var row: int = y * w
+			for x in range(w):
+				mask[row + x] = nxt[row + x]
+
+
+func _inpaint_known(src: PackedByteArray, mask: PackedByteArray, w: int, h: int, y0: int, y1: int) -> void:
+	# Onion-peel from the letter outline using nearby already-known pixels, then
+	# a few 8-neighbor smooth passes on the mask only. Unmasked bytes stay source.
+	var n: int = w * h
+	var known := PackedByteArray()
+	known.resize(n)
+	for i in n:
+		known[i] = 0 if mask[i] != 0 else 1
+	var queue := PackedInt32Array()
+	var queued := PackedByteArray()
+	queued.resize(n)
+	for y in range(y0, y1 + 1):
+		for x in range(w):
+			var p: int = y * w + x
+			if known[p] != 0:
+				continue
+			if _has_known_neigh(known, w, y0, y1, x, y):
+				queued[p] = 1
+				queue.push_back(p)
+	var qh: int = 0
+	while qh < queue.size():
+		var p: int = queue[qh]
+		qh += 1
+		var x: int = p % w
+		var y: int = int(p / w)
+		if known[p] != 0:
+			continue
+		var sr: int = 0
+		var sg: int = 0
+		var sb: int = 0
+		var cnt: int = 0
+		for dy in range(-1, 2):
+			for dx in range(-1, 2):
+				if dx == 0 and dy == 0:
+					continue
+				var nx: int = x + dx
+				var ny: int = y + dy
+				if nx < 0 or nx >= w or ny < 0 or ny >= h:
+					continue
+				var np: int = ny * w + nx
+				if known[np] == 0:
+					continue
+				var i: int = np * 4
+				sr += src[i]
+				sg += src[i + 1]
+				sb += src[i + 2]
+				cnt += 1
+		var i0: int = p * 4
+		if cnt > 0:
+			src[i0] = int(float(sr) / float(cnt) + 0.5)
+			src[i0 + 1] = int(float(sg) / float(cnt) + 0.5)
+			src[i0 + 2] = int(float(sb) / float(cnt) + 0.5)
+		known[p] = 1
+		for dy in range(-1, 2):
+			for dx in range(-1, 2):
+				if dx == 0 and dy == 0:
+					continue
+				var nx: int = x + dx
+				var ny: int = y + dy
+				if nx < 0 or nx >= w or ny < y0 or ny > y1:
+					continue
+				var np: int = ny * w + nx
+				if known[np] == 0 and queued[np] == 0:
+					queued[np] = 1
+					queue.push_back(np)
+	# Smooth mask interiors so the peel does not keep a glyph-shaped seam.
+	var tmp := PackedByteArray(src)
+	for _pass in _BAKE_SMOOTH:
+		for y in range(y0, y1 + 1):
+			for x in range(w):
+				var p: int = y * w + x
+				if mask[p] == 0:
+					continue
+				var sr: int = 0
+				var sg: int = 0
+				var sb: int = 0
+				var cnt: int = 0
+				for dy in range(-1, 2):
+					for dx in range(-1, 2):
+						if dx == 0 and dy == 0:
+							continue
+						var nx: int = x + dx
+						var ny: int = y + dy
+						if nx < 0 or nx >= w or ny < 0 or ny >= h:
+							continue
+						var i: int = (ny * w + nx) * 4
+						sr += src[i]
+						sg += src[i + 1]
+						sb += src[i + 2]
+						cnt += 1
+				var i0: int = p * 4
+				if cnt > 0:
+					tmp[i0] = int(float(sr) / float(cnt) + 0.5)
+					tmp[i0 + 1] = int(float(sg) / float(cnt) + 0.5)
+					tmp[i0 + 2] = int(float(sb) / float(cnt) + 0.5)
+		for y in range(y0, y1 + 1):
+			for x in range(w):
+				var p: int = y * w + x
+				if mask[p] == 0:
+					continue
+				var i0: int = p * 4
+				src[i0] = tmp[i0]
+				src[i0 + 1] = tmp[i0 + 1]
+				src[i0 + 2] = tmp[i0 + 2]
+
+
+
+func _has_known_neigh(known: PackedByteArray, w: int, y0: int, y1: int, x: int, y: int) -> bool:
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			if dx == 0 and dy == 0:
+				continue
+			var nx: int = x + dx
+			var ny: int = y + dy
+			if nx < 0 or nx >= w or ny < y0 or ny > y1:
+				continue
+			if known[ny * w + nx] != 0:
+				return true
+	return false
