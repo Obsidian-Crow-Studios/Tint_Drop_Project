@@ -3,6 +3,7 @@ extends Control
 const TubeView = preload("res://scripts/tube.gd")
 const LogoMarkScript = preload("res://scripts/logo_mark.gd")
 const WinOverlayScript = preload("res://scripts/win_overlay.gd")
+const TintProgressScript = preload("res://scripts/progress.gd")
 const CAPACITY := 4
 const TUBE_SCENE_W := 144.0
 const TUBE_SCENE_H := 282.0
@@ -221,12 +222,17 @@ var _play_host: Control
 var _title_catcher: Control
 var _title_prompt: Control
 var _title_pulse: Tween
+var _title_streak: Label
 var _live_hud: Array[CanvasItem] = []
+var _progress: TintProgress
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	_progress = TintProgressScript.new()
+	_progress.boot(LEVELS.size())
+	session_clears = _progress.current_pack_clears
 	_build_ui()
-	_load_level(0)
+	_load_level(_progress.campaign_level_index)
 	_show_title()
 	if OS.get_environment("TINT_DROP_CAPTURE") != "":
 		_run_overlay_capture()
@@ -550,11 +556,11 @@ func _build_title_catcher() -> void:
 	_title_prompt.anchor_right = 0.5
 	_title_prompt.anchor_bottom = 0.5
 	_title_prompt.offset_left = -280.0
-	_title_prompt.offset_top = -56.0
+	_title_prompt.offset_top = -68.0
 	_title_prompt.offset_right = 280.0
-	_title_prompt.offset_bottom = 56.0
-	_title_prompt.custom_minimum_size = Vector2(560.0, 112.0)
-	_title_prompt.pivot_offset = Vector2(280.0, 56.0)
+	_title_prompt.offset_bottom = 68.0
+	_title_prompt.custom_minimum_size = Vector2(560.0, 136.0)
+	_title_prompt.pivot_offset = Vector2(280.0, 68.0)
 	_title_catcher.add_child(_title_prompt)
 
 	var col := VBoxContainer.new()
@@ -590,18 +596,42 @@ func _build_title_catcher() -> void:
 	cap.add_theme_constant_override("outline_size", 2)
 	col.add_child(cap)
 
+	_title_streak = Label.new()
+	_title_streak.text = ""
+	_title_streak.visible = false
+	_title_streak.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_title_streak.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_title_streak.add_theme_font_override("font", HINT_FONT)
+	_title_streak.add_theme_font_size_override("font_size", 16)
+	_title_streak.add_theme_color_override("font_color", UI_CAPTION)
+	_title_streak.add_theme_color_override("font_outline_color", UI_ESPRESSO)
+	_title_streak.add_theme_constant_override("outline_size", 2)
+	col.add_child(_title_streak)
+	_refresh_title_streak()
+
 
 func _start_title_pulse() -> void:
 	if _title_prompt == null:
 		return
 	if _title_pulse != null and is_instance_valid(_title_pulse):
 		_title_pulse.kill()
-	_title_prompt.pivot_offset = Vector2(280.0, 56.0)
+	_title_prompt.pivot_offset = Vector2(280.0, 68.0)
 	_title_prompt.scale = Vector2.ONE
 	_title_pulse = create_tween()
 	_title_pulse.set_loops()
 	_title_pulse.tween_property(_title_prompt, "scale", Vector2(1.04, 1.04), 0.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_title_pulse.tween_property(_title_prompt, "scale", Vector2.ONE, 0.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func _refresh_title_streak() -> void:
+	if _title_streak == null:
+		return
+	if _progress != null and _progress.should_show_streak_chip():
+		_title_streak.text = _progress.streak_chip_text()
+		_title_streak.visible = true
+	else:
+		_title_streak.text = ""
+		_title_streak.visible = false
 
 
 func _show_title() -> void:
@@ -618,6 +648,7 @@ func _show_title() -> void:
 		_status.visible = false
 	time_left = _level_clock()
 	_update_timer_hud()
+	_refresh_title_streak()
 	_start_title_pulse()
 
 
@@ -1110,10 +1141,14 @@ func _sync_chips_left(animate: bool) -> void:
 		_chips_tween.tween_property(_chips_num, "scale", Vector2.ONE, 0.16)
 
 func _refresh_clears_label() -> void:
-	var in_pack: int = session_clears % PACK_CLEARS
-	var filled: int = in_pack
-	if won and in_pack == 0 and session_clears > 0:
-		filled = PACK_CLEARS
+	var filled: int = 0
+	if _progress != null:
+		filled = _progress.pack_pips_filled(won)
+	else:
+		var in_pack: int = session_clears % PACK_CLEARS
+		filled = in_pack
+		if won and in_pack == 0 and session_clears > 0:
+			filled = PACK_CLEARS
 	if _clears_label != null:
 		_clears_label.text = "%d/%d" % [filled, PACK_CLEARS]
 	for i in _clear_pips.size():
@@ -1477,15 +1512,23 @@ func _on_win() -> void:
 	won = true
 	selected = -1
 	_refresh_views()
+	if _progress != null:
+		_progress.record_clear(level_index, LEVELS.size())
 	session_clears += 1
 	_refresh_clears_label()
 	_sync_chips_left(true)
-	var pack_done: bool = (session_clears % PACK_CLEARS) == 0
-	var campaign_done: bool = level_index >= LEVELS.size() - 1 or session_clears >= LEVELS.size()
+	var pack_done: bool = false
+	if _progress != null:
+		pack_done = _progress.pack_just_completed()
+	else:
+		pack_done = (session_clears % PACK_CLEARS) == 0
+	var campaign_done: bool = level_index >= LEVELS.size() - 1
 	_set_hint_visible(false)
 	if _win_overlay != null:
 		var filled: int = session_clears % PACK_CLEARS
-		if pack_done and session_clears > 0:
+		if _progress != null:
+			filled = _progress.pack_pips_filled(true)
+		elif pack_done and session_clears > 0:
 			filled = PACK_CLEARS
 		_set_live_play_visible(false)
 		_win_overlay.present(pack_done, campaign_done, filled)
@@ -1558,6 +1601,7 @@ func _spawn_sparks(at: Vector2, col: Color, n: int) -> void:
 		tw.chain().tween_callback(spark.queue_free)
 
 func _on_restart() -> void:
+	# Current board only. Does not rewind or advance campaign persist.
 	if not _session_live:
 		return
 	_dismiss_win_overlay()
@@ -1589,18 +1633,16 @@ func _on_next() -> void:
 	_dismiss_win_overlay()
 	_restore_bgm()
 	_play_sfx(_sfx_next)
-	var pack_done: bool = (session_clears % PACK_CLEARS) == 0
-	var campaign_done: bool = level_index >= LEVELS.size() - 1 or session_clears >= LEVELS.size()
+	var campaign_done: bool = level_index >= LEVELS.size() - 1
+	var next_i: int = level_index + 1
+	if _progress != null:
+		next_i = _progress.campaign_level_index
 	if campaign_done:
-		session_clears = 0
-		_refresh_clears_label()
 		_session_live = false
-		_load_level(0)
+		_load_level(next_i)
 		_show_title()
-	elif pack_done:
-		_load_level(level_index + 1)
 	else:
-		_load_level(level_index + 1)
+		_load_level(next_i)
 
 func _toast_shop(msg: String) -> void:
 	if _shop_toast == null:
