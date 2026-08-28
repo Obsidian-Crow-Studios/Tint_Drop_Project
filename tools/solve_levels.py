@@ -20,8 +20,8 @@ from collections import deque
 from pathlib import Path
 
 CAPACITY = 4
-# Matches TubeView.PALETTE (0..4 today). Not a level-count cap.
-MAX_COLOR_ID = 4
+# Matches TubeView.PALETTE (0..5 today). Not a level-count cap.
+MAX_COLOR_ID = 5
 DEFAULT_NODE_CAP = 400_000
 
 
