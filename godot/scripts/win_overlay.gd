@@ -20,8 +20,10 @@ const PIP_SIZE := 20.0
 const PIP_GAP := 12.0
 const PIP_COUNT := 5
 const PIP_TOP := 432.0
-const WORD_TOP := 48.0
-const WORD_H := 140.0
+# Same slot as baked CLEARED glyphs (y≈88–420), above the pip row.
+const WORD_TOP := 88.0
+const WORD_H := 332.0
+const WORD_HALF_W := 360.0
 const NEXT_H := 188.0
 const NEXT_BOTTOM_PAD := 12.0
 const UI_CAPTION := Color8(243, 230, 216)
@@ -138,15 +140,16 @@ func _build() -> void:
 	# of baked CLEARED glyphs in this same still. No second plate, no y_cut.
 	_word = _keyed_rect(_atlas(TEX_PACK, Rect2(65, 405, 1427, 214)))
 	_word.visible = false
+	_word.stretch_mode = TextureRect.STRETCH_SCALE
 	_word.anchor_left = 0.5
 	_word.anchor_right = 0.5
 	_word.anchor_top = 0.0
 	_word.anchor_bottom = 0.0
-	_word.offset_left = -350.0
-	_word.offset_right = 350.0
+	_word.offset_left = -WORD_HALF_W
+	_word.offset_right = WORD_HALF_W
 	_word.offset_top = WORD_TOP
 	_word.offset_bottom = WORD_TOP + WORD_H
-	_word.pivot_offset = Vector2(350.0, WORD_H * 0.5)
+	_word.pivot_offset = Vector2(WORD_HALF_W, WORD_H * 0.5)
 	_root.add_child(_word)
 
 	_spray_host = Control.new()
@@ -375,7 +378,7 @@ func _start_word_pulse() -> void:
 		return
 	if _word_tween != null and is_instance_valid(_word_tween):
 		_word_tween.kill()
-	_word.pivot_offset = Vector2(350.0, WORD_H * 0.5)
+	_word.pivot_offset = Vector2(WORD_HALF_W, WORD_H * 0.5)
 	_word_tween = create_tween()
 	_word_tween.set_loops()
 	_word_tween.tween_property(_word, "scale", Vector2(1.045, 1.045), 0.55).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
@@ -447,16 +450,15 @@ func _on_next_pressed() -> void:
 	next_pressed.emit()
 
 
-# PACK COMPLETE hero: same cafe still as CLEARED with only the baked gel
-# glyphs removed. Mask is letter-shaped (large cyan/pink/orange CCs inside
-# the word bbox + hole-fill + 3px dilate). Fill is a local average of nearby
-# already-known pixels — never a y_cut band, luma sky wipe, or copy from y=0.
+# PACK COMPLETE hero: same cafe still as CLEARED with only baked glyph
+# pixels removed. Detectors run per chroma so orange sunburst cannot
+# 8-connect E+A+R into one full-width plate. Reject any CC that spans
+# the frame. Dilate 3px, no morphological close, no y_cut / y=0 copy.
 const _BAKE_Y0 := 82
 const _BAKE_Y1 := 428
 const _BAKE_MIN_CC := 8000
-const _BAKE_CLOSE := 5
 const _BAKE_DILATE := 3
-const _BAKE_SMOOTH := 10
+const _BAKE_SMOOTH := 8
 
 
 func _bake_pack_hero() -> Texture2D:
@@ -475,27 +477,56 @@ func _bake_pack_hero() -> Texture2D:
 	var t0: int = Time.get_ticks_msec()
 	var src: PackedByteArray = img.get_data()
 	var n: int = w * h
-	var seed := PackedByteArray()
-	seed.resize(n)
 	var y0: int = mini(_BAKE_Y0, h - 2)
 	var y1: int = mini(_BAKE_Y1, h - 1)
+	var max_w: int = w - 8
+	var cores := PackedByteArray()
+	cores.resize(n)
+	for kind in 3:
+		var seed := PackedByteArray()
+		seed.resize(n)
+		for y in range(y0, y1 + 1):
+			var row: int = y * w
+			for x in range(w):
+				var i: int = (row + x) * 4
+				var c := Vector3(float(src[i]) / 255.0, float(src[i + 1]) / 255.0, float(src[i + 2]) / 255.0)
+				var hit: bool = false
+				if kind == 0:
+					hit = _gel_cyan(c)
+				elif kind == 1:
+					hit = _gel_pink(c)
+				else:
+					hit = _gel_orange(c)
+				if hit:
+					seed[row + x] = 1
+		var kept: PackedByteArray = _keep_letter_ccs(seed, w, h, y0, y1, _BAKE_MIN_CC, max_w)
+		for i2 in n:
+			if kept[i2] != 0:
+				cores[i2] = 1
+	_fill_holes(cores, w, h, y0, y1)
+	_morph(cores, w, h, y0, y1, _BAKE_DILATE, true)
+	for y in range(h):
+		if y >= y0 and y <= y1:
+			continue
+		var row: int = y * w
+		for x in range(w):
+			cores[row + x] = 0
+	var mask_n: int = 0
+	var minx: int = w
+	var maxx: int = 0
+	var miny: int = h
+	var maxy: int = 0
 	for y in range(y0, y1 + 1):
 		var row: int = y * w
 		for x in range(w):
-			var i: int = (row + x) * 4
-			var c := Vector3(float(src[i]) / 255.0, float(src[i + 1]) / 255.0, float(src[i + 2]) / 255.0)
-			if _gel_cyan(c) or _gel_pink(c) or _gel_orange(c):
-				seed[row + x] = 1
-	var cores: PackedByteArray = _keep_large_ccs(seed, w, h, y0, y1, _BAKE_MIN_CC)
-	_fill_holes(cores, w, h, y0, y1)
-	_morph(cores, w, h, y0, y1, _BAKE_CLOSE, true)
-	_morph(cores, w, h, y0, y1, _BAKE_CLOSE, false)
-	_morph(cores, w, h, y0, y1, _BAKE_DILATE, true)
-	for y in range(h):
-		var row: int = y * w
-		if y < y0 or y > y1:
-			for x in range(w):
-				cores[row + x] = 0
+			if cores[row + x] == 0:
+				continue
+			mask_n += 1
+			minx = mini(minx, x)
+			maxx = maxi(maxx, x)
+			miny = mini(miny, y)
+			maxy = maxi(maxy, y)
+	print("WinOverlay: glyph mask ", mask_n, " px bbox x=", minx, "-", maxx, " y=", miny, "-", maxy, " w=", maxx - minx + 1)
 	_inpaint_known(src, cores, w, h, y0, y1)
 	img.set_data(w, h, false, Image.FORMAT_RGBA8, src)
 	var tex := ImageTexture.create_from_image(img)
@@ -536,7 +567,7 @@ func _gel_orange(c: Vector3) -> bool:
 	)
 
 
-func _keep_large_ccs(seed: PackedByteArray, w: int, h: int, y0: int, y1: int, min_size: int) -> PackedByteArray:
+func _keep_letter_ccs(seed: PackedByteArray, w: int, h: int, y0: int, y1: int, min_size: int, max_width: int) -> PackedByteArray:
 	var n: int = w * h
 	var seen := PackedByteArray()
 	seen.resize(n)
@@ -572,9 +603,26 @@ func _keep_large_ccs(seed: PackedByteArray, w: int, h: int, y0: int, y1: int, mi
 							continue
 						seen[np] = 1
 						stack.push_back(np)
-			if comp.size() >= min_size:
-				for p2 in comp:
-					out[p2] = 1
+			if comp.size() < min_size:
+				continue
+			var minx: int = w
+			var maxx: int = 0
+			var miny: int = h
+			var maxy: int = 0
+			for p2 in comp:
+				var cx: int = p2 % w
+				var cy: int = int(p2 / w)
+				minx = mini(minx, cx)
+				maxx = maxi(maxx, cx)
+				miny = mini(miny, cy)
+				maxy = maxi(maxy, cy)
+			var cw: int = maxx - minx + 1
+			if cw >= max_width:
+				print("WinOverlay: reject full-width CC n=", comp.size(), " w=", cw, " x=", minx, "-", maxx)
+				continue
+			print("WinOverlay: keep glyph CC n=", comp.size(), " w=", cw, " x=", minx, "-", maxx, " y=", miny, "-", maxy)
+			for p3 in comp:
+				out[p3] = 1
 	return out
 
 
