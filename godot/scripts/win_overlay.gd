@@ -6,6 +6,7 @@ signal fanfare_ended
 
 const CHROMA := preload("res://shaders/chroma_key.gdshader")
 const TEX_HERO := preload("res://assets/ui/win/win-fanfare-cleared.png")
+const TEX_HERO_PACK := preload("res://assets/ui/win/win-fanfare-pack.png")
 const TEX_PACK := preload("res://assets/ui/win/pack-complete-word.png")
 const TEX_PIP_EMPTY := preload("res://assets/ui/pip_empty_20.png")
 const TEX_PIP_LIT := preload("res://assets/ui/pip_lit_20.png")
@@ -19,7 +20,7 @@ const VIEW_H := 1280.0
 const PIP_SIZE := 20.0
 const PIP_GAP := 12.0
 const PIP_COUNT := 5
-const PIP_TOP := 392.0
+const PIP_TOP := 432.0
 const WORD_TOP := 36.0
 const WORD_H := 200.0
 const NEXT_H := 188.0
@@ -68,12 +69,10 @@ func present(pack_complete: bool, campaign_done: bool, filled_pips: int = 0) -> 
 	_showing = true
 	visible = true
 	var show_pack: bool = pack_complete or campaign_done
-	_word.visible = show_pack
-	_word.texture = _atlas(TEX_PACK, Rect2(58, 398, 1442, 229))
+	_hero.texture = TEX_HERO_PACK if show_pack else TEX_HERO
+	_word.visible = false
 	if campaign_done:
 		next_btn.text = "Again"
-	elif pack_complete:
-		next_btn.text = "Next pack"
 	else:
 		next_btn.text = ""
 	_set_pips(filled_pips)
@@ -309,10 +308,11 @@ func _build_spray_bits() -> void:
 		_spray_bits.append(bit)
 
 
-func _reset_visuals(show_pack: bool) -> void:
+func _reset_visuals(_show_pack: bool) -> void:
 	_hero.modulate = Color(1, 1, 1, 1)
-	_word.modulate = Color(1, 1, 1, 0 if show_pack else 1)
-	_word.scale = Vector2(0.78, 0.78) if show_pack else Vector2.ONE
+	_word.visible = false
+	_word.modulate = Color(1, 1, 1, 1)
+	_word.scale = Vector2.ONE
 	next_btn.modulate = Color(1, 1, 1, 0)
 	next_btn.disabled = true
 	for bit in _spray_bits:
@@ -320,11 +320,9 @@ func _reset_visuals(show_pack: bool) -> void:
 	_seed_spray_bits()
 
 
-func _snap_idle(show_pack: bool) -> void:
+func _snap_idle(_show_pack: bool) -> void:
 	_hero.modulate = Color(1, 1, 1, 1)
-	_word.modulate = Color(1, 1, 1, 1)
-	_word.scale = Vector2.ONE
-	_word.visible = show_pack
+	_word.visible = false
 	next_btn.modulate = Color(1, 1, 1, 1)
 	next_btn.disabled = false
 	_spray_moving = false
@@ -348,16 +346,11 @@ func _seed_spray_bits() -> void:
 		bit.set_meta("oy", origin.y)
 
 
-func _run_sequence(show_pack: bool) -> void:
+func _run_sequence(_show_pack: bool) -> void:
 	if _seq != null and is_instance_valid(_seq):
 		_seq.kill()
 	_seq = create_tween()
 	_seq.set_parallel(true)
-	if show_pack:
-		_seq.tween_property(_word, "modulate:a", 1.0, 0.22)
-		_seq.tween_property(_word, "scale", Vector2(1.10, 1.10), 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		_seq.tween_property(_word, "scale", Vector2.ONE, 0.16).set_delay(0.22)
-		_seq.tween_callback(_start_word_pulse).set_delay(0.40)
 	_seq.tween_property(next_btn, "modulate:a", 1.0, 0.25).set_delay(1.05)
 	_seq.tween_callback(func() -> void:
 		next_btn.disabled = false
