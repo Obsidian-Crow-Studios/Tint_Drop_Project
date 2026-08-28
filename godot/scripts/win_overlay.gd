@@ -5,6 +5,7 @@ signal next_pressed
 signal fanfare_ended
 
 const CHROMA := preload("res://shaders/chroma_key.gdshader")
+const HIDE_GEL := preload("res://shaders/hide_gel_letters.gdshader")
 const TEX_HERO := preload("res://assets/ui/win/win-fanfare-cleared.png")
 const TEX_PACK := preload("res://assets/ui/win/pack-complete-word.png")
 const TEX_PIP_EMPTY := preload("res://assets/ui/pip_empty_20.png")
@@ -40,6 +41,7 @@ var _pips: Array[TextureRect] = []
 var _root: Control
 var _cover: ColorRect
 var _hero: TextureRect
+var _hero_hide_mat: ShaderMaterial
 var _word: TextureRect
 var _spray_host: Control
 var _spray_bits: Array[ColorRect] = []
@@ -69,6 +71,7 @@ func present(pack_complete: bool, campaign_done: bool, filled_pips: int = 0) -> 
 	visible = true
 	var show_pack: bool = pack_complete or campaign_done
 	_hero.texture = TEX_HERO
+	_hero.material = _hero_hide_mat if show_pack else null
 	_word.visible = show_pack
 	_word.texture = _atlas(TEX_PACK, Rect2(65, 405, 1427, 214))
 	if campaign_done:
@@ -131,9 +134,11 @@ func _build() -> void:
 	_root.add_child(_hero)
 	_fit_hero()
 
-	# Gel PACK COMPLETE only — chroma-key the letters over the same cafe still.
-	# Do not composite a second background plate (that was the y=430 hard seam).
-	# Baked CLEARED stays; do not inpaint/blur it into a bokeh band.
+	_hero_hide_mat = ShaderMaterial.new()
+	_hero_hide_mat.shader = HIDE_GEL
+
+	# Gel PACK COMPLETE only — chroma-key the letters after hiding baked CLEARED
+	# in this same still (letter-shaped copy-from-sunburst). No second plate.
 	_word = _keyed_rect(_atlas(TEX_PACK, Rect2(65, 405, 1427, 214)))
 	_word.visible = false
 	_word.anchor_left = 0.5
