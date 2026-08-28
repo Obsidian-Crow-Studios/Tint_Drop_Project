@@ -450,18 +450,22 @@ func _on_next_pressed() -> void:
 	next_pressed.emit()
 
 
-# PACK COMPLETE hero: same cafe still as CLEARED with only baked glyph
-# pixels removed. Per-chroma CCs, hole-fill per letter (never the union),
-# reject frame-edge slivers. Dilate 2px. No y_cut / y=0 copy. If the union
-# still paints a plate (any row ≥85% wide), refuse the bake.
+# PACK COMPLETE hero: same cafe still as CLEARED with baked glyphs replaced
+# by a per-row cafe/sunburst field (no onion-peel facets). Per-chroma CCs,
+# hole-fill per letter (never the union), reject frame-edge slivers in the
+# word band. Dilate 2px above the pip gap. Leftover gel in y=420–431 is
+# included so E/R feet cannot sit on the pip row. No y_cut / y=0 copy.
+# If the union still paints a plate (any row ≥85% wide), refuse the bake.
 const _BAKE_Y0 := 82
-const _BAKE_Y1 := 428
+const _BAKE_Y1 := 431
 const _BAKE_MIN_CC := 8000
 const _BAKE_MAX_W := 680
 const _BAKE_DILATE := 2
-const _BAKE_SMOOTH := 10
 const _BAKE_GAP_Y := 420
 const _BAKE_RIGHT := 700
+const _BAKE_ROW_X0 := 40
+const _BAKE_ROW_X1 := 659
+const _BAKE_SMOOTH_RAD := 2
 
 
 func _bake_pack_hero() -> Texture2D:
@@ -510,14 +514,16 @@ func _bake_pack_hero() -> Texture2D:
 				filled[i2] = 1
 	var cores: PackedByteArray = filled.duplicate()
 	_morph(cores, w, h, y0, y1, _BAKE_DILATE, true)
-	# Dilate must not paint the pip-gap or the right-edge sunburst sliver.
+	# Dilate stays above the pip gap. In the gap, keep letter feet AND every
+	# leftover gel pixel (right-edge E sliver, E/R feet) so nothing sits on
+	# the pip row. Do not punch out x≥700 in that gap.
 	var gap_y: int = mini(_BAKE_GAP_Y, y1 + 1)
 	for y in range(gap_y, y1 + 1):
 		var row: int = y * w
 		for x in range(w):
-			cores[row + x] = filled[row + x]
+			cores[row + x] = 1 if (filled[row + x] != 0 or gel_any[row + x] != 0) else 0
 	var right: int = mini(_BAKE_RIGHT, w)
-	for y in range(y0, y1 + 1):
+	for y in range(y0, gap_y):
 		var row: int = y * w
 		for x in range(right, w):
 			cores[row + x] = 0
@@ -556,7 +562,7 @@ func _bake_pack_hero() -> Texture2D:
 		push_warning("WinOverlay: refuse union plate (letter mask must stay glyph-shaped).")
 		return TEX_HERO
 	if mask_n > 0:
-		_inpaint_cafe(src, cores, gel_any, w, h, y0, y1)
+		_inpaint_sunburst(src, cores, w, h, y0, y1)
 	img.set_data(w, h, false, Image.FORMAT_RGBA8, src)
 	var tex := ImageTexture.create_from_image(img)
 	print("WinOverlay: pack hero bake ", Time.get_ticks_msec() - t0, " ms")
@@ -566,6 +572,16 @@ func _bake_pack_hero() -> Texture2D:
 func _gel_cyan(c: Vector3) -> bool:
 	var sat: float = maxf(c.x, maxf(c.y, c.z)) - minf(c.x, minf(c.y, c.z))
 	return c.z > c.x + 0.14 and c.z > 0.33 and sat > 0.28
+
+
+func _gel_cyan_loose(c: Vector3) -> bool:
+	# Source blocker only: catch anti-aliased A-cyan fringe that misses _gel_cyan.
+	var sat: float = maxf(c.x, maxf(c.y, c.z)) - minf(c.x, minf(c.y, c.z))
+	return c.z > c.x + 0.10 and c.z > 0.30 and sat > 0.22
+
+
+func _src_letter_gel(c: Vector3) -> bool:
+	return _gel_cyan_loose(c) or _gel_pink(c)
 
 
 func _gel_pink(c: Vector3) -> bool:
@@ -742,138 +758,155 @@ func _morph(mask: PackedByteArray, w: int, h: int, y0: int, y1: int, iterations:
 				mask[row + x] = nxt[row + x]
 
 
-func _inpaint_cafe(
+func _inpaint_sunburst(
 	src: PackedByteArray,
 	mask: PackedByteArray,
-	gel: PackedByteArray,
 	w: int,
 	h: int,
 	y0: int,
 	y1: int,
 ) -> void:
-	# Onion-peel from cafe/sunburst only. Gel-colored unmasked pixels (leftover
-	# outlines, confetti) are not sources — those re-seed CLEARED gel into
-	# letter interiors. Once a mask pixel is filled from cafe, it becomes a
-	# source. Unmasked bytes stay the original still.
+	# Replace glyph pixels with the per-row cafe/sunburst field so interiors
+	# are not letter-shaped peel facets. Cyan/pink leftovers are not sources
+	# (those re-seed CLEARED gel). Orange sunburst is a valid source.
+	# Unmasked bytes stay the original still.
 	var n: int = w * h
-	var known := PackedByteArray()
-	known.resize(n)
-	for i in n:
-		known[i] = 1 if (mask[i] == 0 and gel[i] == 0) else 0
-	var queue := PackedInt32Array()
-	var queued := PackedByteArray()
-	queued.resize(n)
+	var cafe := PackedByteArray()
+	cafe.resize(n)
+	var x0s: int = mini(_BAKE_ROW_X0, w - 2)
+	var x1s: int = mini(_BAKE_ROW_X1, w - 1)
 	for y in range(y0, y1 + 1):
+		var row: int = y * w
 		for x in range(w):
-			var p: int = y * w + x
-			if mask[p] == 0 or known[p] != 0:
+			var p: int = row + x
+			if mask[p] != 0:
 				continue
-			if _has_known_neigh(known, w, y0, y1, x, y):
-				queued[p] = 1
-				queue.push_back(p)
-	var qh: int = 0
-	while qh < queue.size():
-		var p: int = queue[qh]
-		qh += 1
-		var x: int = p % w
-		var y: int = int(p / w)
-		if mask[p] == 0 or known[p] != 0:
-			continue
+			var i: int = p * 4
+			var c := Vector3(float(src[i]) / 255.0, float(src[i + 1]) / 255.0, float(src[i + 2]) / 255.0)
+			if _src_letter_gel(c):
+				continue
+			cafe[p] = 1
+	var row_r := PackedInt32Array()
+	var row_g := PackedInt32Array()
+	var row_b := PackedInt32Array()
+	var row_n := PackedInt32Array()
+	row_r.resize(h)
+	row_g.resize(h)
+	row_b.resize(h)
+	row_n.resize(h)
+	for y in range(y0, y1 + 1):
 		var sr: int = 0
 		var sg: int = 0
 		var sb: int = 0
 		var cnt: int = 0
-		for dy in range(-1, 2):
-			for dx in range(-1, 2):
-				if dx == 0 and dy == 0:
+		var row: int = y * w
+		for x in range(x0s, x1s + 1):
+			if cafe[row + x] == 0:
+				continue
+			var i: int = (row + x) * 4
+			sr += src[i]
+			sg += src[i + 1]
+			sb += src[i + 2]
+			cnt += 1
+		if cnt == 0:
+			for x in range(w):
+				if cafe[row + x] == 0:
 					continue
-				var nx: int = x + dx
-				var ny: int = y + dy
-				if nx < 0 or nx >= w or ny < 0 or ny >= h:
-					continue
-				var np: int = ny * w + nx
-				if known[np] == 0:
-					continue
-				var i: int = np * 4
-				sr += src[i]
-				sg += src[i + 1]
-				sb += src[i + 2]
+				var i2: int = (row + x) * 4
+				sr += src[i2]
+				sg += src[i2 + 1]
+				sb += src[i2 + 2]
 				cnt += 1
+		row_n[y] = cnt
+		if cnt > 0:
+			row_r[y] = int(float(sr) / float(cnt) + 0.5)
+			row_g[y] = int(float(sg) / float(cnt) + 0.5)
+			row_b[y] = int(float(sb) / float(cnt) + 0.5)
+	var sm_r := PackedInt32Array()
+	var sm_g := PackedInt32Array()
+	var sm_b := PackedInt32Array()
+	var sm_ok := PackedByteArray()
+	sm_r.resize(h)
+	sm_g.resize(h)
+	sm_b.resize(h)
+	sm_ok.resize(h)
+	var rad: int = _BAKE_SMOOTH_RAD
+	for y in range(y0, y1 + 1):
+		var sr: int = 0
+		var sg: int = 0
+		var sb: int = 0
+		var cnt: int = 0
+		for dy in range(-rad, rad + 1):
+			var ny: int = y + dy
+			if ny < y0 or ny > y1 or row_n[ny] == 0:
+				continue
+			sr += row_r[ny]
+			sg += row_g[ny]
+			sb += row_b[ny]
+			cnt += 1
 		if cnt == 0:
 			continue
-		var i0: int = p * 4
-		src[i0] = int(float(sr) / float(cnt) + 0.5)
-		src[i0 + 1] = int(float(sg) / float(cnt) + 0.5)
-		src[i0 + 2] = int(float(sb) / float(cnt) + 0.5)
-		known[p] = 1
-		for dy in range(-1, 2):
-			for dx in range(-1, 2):
-				if dx == 0 and dy == 0:
-					continue
-				var nx: int = x + dx
-				var ny: int = y + dy
-				if nx < 0 or nx >= w or ny < y0 or ny > y1:
-					continue
-				var np: int = ny * w + nx
-				if mask[np] == 0 or known[np] != 0 or queued[np] != 0:
-					continue
-				queued[np] = 1
-				queue.push_back(np)
-	# Smooth mask interiors so the peel does not keep a glyph-shaped seam.
-	# Skip unmasked gel neighbors so Jacobi cannot pull CLEARED color back in.
+		sm_r[y] = int(float(sr) / float(cnt) + 0.5)
+		sm_g[y] = int(float(sg) / float(cnt) + 0.5)
+		sm_b[y] = int(float(sb) / float(cnt) + 0.5)
+		sm_ok[y] = 1
+	for y in range(y0, y1 + 1):
+		if sm_ok[y] == 0:
+			continue
+		var row: int = y * w
+		var cr: int = sm_r[y]
+		var cg: int = sm_g[y]
+		var cb: int = sm_b[y]
+		for x in range(w):
+			var p: int = row + x
+			if mask[p] == 0:
+				continue
+			var i0: int = p * 4
+			src[i0] = cr
+			src[i0 + 1] = cg
+			src[i0 + 2] = cb
+	# Pull mask edges toward already-known cafe so the glyph outline does not
+	# stay as a brightness facet.
 	var tmp := PackedByteArray(src)
-	for _pass in _BAKE_SMOOTH:
-		for y in range(y0, y1 + 1):
-			for x in range(w):
-				var p: int = y * w + x
-				if mask[p] == 0:
-					continue
-				var sr: int = 0
-				var sg: int = 0
-				var sb: int = 0
-				var cnt: int = 0
-				for dy in range(-1, 2):
-					for dx in range(-1, 2):
-						if dx == 0 and dy == 0:
-							continue
-						var nx: int = x + dx
-						var ny: int = y + dy
-						if nx < 0 or nx >= w or ny < 0 or ny >= h:
-							continue
-						var np: int = ny * w + nx
-						if gel[np] != 0 and mask[np] == 0:
-							continue
-						var i: int = np * 4
-						sr += src[i]
-						sg += src[i + 1]
-						sb += src[i + 2]
-						cnt += 1
-				var i0: int = p * 4
-				if cnt > 0:
-					tmp[i0] = int(float(sr) / float(cnt) + 0.5)
-					tmp[i0 + 1] = int(float(sg) / float(cnt) + 0.5)
-					tmp[i0 + 2] = int(float(sb) / float(cnt) + 0.5)
-		for y in range(y0, y1 + 1):
-			for x in range(w):
-				var p: int = y * w + x
-				if mask[p] == 0:
-					continue
-				var i0: int = p * 4
-				src[i0] = tmp[i0]
-				src[i0 + 1] = tmp[i0 + 1]
-				src[i0 + 2] = tmp[i0 + 2]
-
-
-
-func _has_known_neigh(known: PackedByteArray, w: int, y0: int, y1: int, x: int, y: int) -> bool:
-	for dy in range(-1, 2):
-		for dx in range(-1, 2):
-			if dx == 0 and dy == 0:
+	for y in range(y0, y1 + 1):
+		for x in range(w):
+			var p: int = y * w + x
+			if mask[p] == 0:
 				continue
-			var nx: int = x + dx
-			var ny: int = y + dy
-			if nx < 0 or nx >= w or ny < y0 or ny > y1:
+			var sr: int = 0
+			var sg: int = 0
+			var sb: int = 0
+			var cnt: int = 0
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					if dx == 0 and dy == 0:
+						continue
+					if dx != 0 and dy != 0:
+						continue
+					var nx: int = x + dx
+					var ny: int = y + dy
+					if nx < 0 or nx >= w or ny < y0 or ny > y1:
+						continue
+					var np: int = ny * w + nx
+					if cafe[np] == 0:
+						continue
+					var i: int = np * 4
+					sr += src[i]
+					sg += src[i + 1]
+					sb += src[i + 2]
+					cnt += 1
+			if cnt == 0:
 				continue
-			if known[ny * w + nx] != 0:
-				return true
-	return false
+			var i0: int = p * 4
+			tmp[i0] = clampi(int((float(src[i0]) + float(sr) / float(cnt)) * 0.5 + 0.5), 0, 255)
+			tmp[i0 + 1] = clampi(int((float(src[i0 + 1]) + float(sg) / float(cnt)) * 0.5 + 0.5), 0, 255)
+			tmp[i0 + 2] = clampi(int((float(src[i0 + 2]) + float(sb) / float(cnt)) * 0.5 + 0.5), 0, 255)
+	for y in range(y0, y1 + 1):
+		for x in range(w):
+			var p: int = y * w + x
+			if mask[p] == 0:
+				continue
+			var i0: int = p * 4
+			src[i0] = tmp[i0]
+			src[i0 + 1] = tmp[i0 + 1]
+			src[i0 + 2] = tmp[i0 + 2]
