@@ -39,20 +39,26 @@ One Godot project. Export presets, not three games.
 
 ## 6. Monetization (locked)
 
-**Allowed**
-- Remove ads
-- Booster packs (extra well slot, color-bomb, undo)
-- Cosmetics (well skins, chip trails)
-- Battle-pass-lite: 14-day cosmetic track, no paywall on levels
-- Rewarded ads: extra retry or one booster (opt-in, never forced mid-clear)
+USD list prices locked 2026-08-28. Stores take ~30%. First 50 levels stay free. No $4.99 fail-wall.
+
+**Mobile IAP**
+- Remove ads — $4.99
+- Extra well — $1.99
+- Undo pack (5) — $1.99
+- Color-bomb — $1.99
+- Booster starter (1 extra well + 3 undos + 1 bomb) — $4.99
+- Well skin or chip trail — $0.99
+- 14-day cosmetic track (no level paywall) — $4.99
+- Rewarded ads: extra retry or one booster (opt-in, never forced mid-clear). No price.
+
+**Steam**
+- $7.99 one purchase: the game with ads off + booster starter kit. No rewarded ads on Steam.
 
 **Forbidden**
 - Loot boxes, gacha, randomized paid packs
 - Pay-to-not-suffer as the only way past a wall
 - Fake money / casino chrome
 - Dark patterns that hide the price or the close button
-
-Steam SKU: one purchase that is the no-ads + booster starter kit.
 
 ## 7. Retention (fair, not a trap)
 
