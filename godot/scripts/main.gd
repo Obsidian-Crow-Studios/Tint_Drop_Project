@@ -1020,8 +1020,8 @@ func _run_splash_capture(kind: String) -> void:
 	else:
 		if _studio_splash != null:
 			_studio_splash.play()
-		# S1 fully in at 3s. S2 WokePlate at 6.0, slash overlay slam at 6.50.
-		var wait_s: float = 3.15 if kind == "studio" else 6.70
+		# S1 fully in just before 3s fade-out. S2 WokePlate at 6.0, slam at 6.50.
+		var wait_s: float = 2.95 if kind == "studio" else 6.70
 		await get_tree().create_timer(wait_s).timeout
 		await get_tree().process_frame
 		await get_tree().process_frame
