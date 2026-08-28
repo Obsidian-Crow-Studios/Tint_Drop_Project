@@ -18,17 +18,17 @@ const VIEW_H := 1280.0
 const PIP_SIZE := 20.0
 const PIP_GAP := 12.0
 const PIP_COUNT := 5
-# Source-space Y on the native portrait stills, mapped through contain-fit.
-# Under the wooden sign, below CLEARED / COMPLETE letters — not on glyphs.
-const PIP_CLEARED_SRC_Y := 232.0
-const PIP_PACK_SRC_Y := 256.0
-# Baked wood+icing Next plaque (CLEARED 720×1033, PACK 720×1002).
-const NEXT_SRC_X0 := 90.0
-const NEXT_SRC_X1 := 630.0
-const NEXT_CLEARED_Y0 := 820.0
-const NEXT_CLEARED_Y1 := 1010.0
-const NEXT_PACK_Y0 := 775.0
-const NEXT_PACK_Y1 := 965.0
+# Source-space Y on the exact 720×1280 stills (1:1 with the viewport).
+# Under the gel word, not on glyphs. PACK sits below COMPLETE, not between lines.
+const PIP_CLEARED_SRC_Y := 220.0
+const PIP_PACK_SRC_Y := 478.0
+# Baked wood+icing Next plaque on the 720×1280 stills.
+const NEXT_SRC_X0 := 110.0
+const NEXT_SRC_X1 := 610.0
+const NEXT_CLEARED_Y0 := 970.0
+const NEXT_CLEARED_Y1 := 1150.0
+const NEXT_PACK_Y0 := 970.0
+const NEXT_PACK_Y1 := 1150.0
 const UI_CAPTION := Color8(243, 230, 216)
 const UI_HERO := Color8(224, 122, 74)
 const UI_ESPRESSO := Color8(59, 30, 22, 255)
@@ -71,8 +71,8 @@ func present(pack_complete: bool, campaign_done: bool, filled_pips: int = 0) -> 
 	dismiss()
 	_showing = true
 	visible = true
-	# Native portrait CLEARED / PACK stills. KEEP_ASPECT_CENTERED on the
-	# viewport rect shows the whole texture (cafe bars if the still is short).
+	# Exact 720×1280 CLEARED / PACK stills. KEEP_ASPECT_CENTERED on the
+	# viewport rect is 1:1 — no pad, no COVER crop.
 	_pack_mode = pack_complete or campaign_done
 	_hero.texture = TEX_PACK if _pack_mode else TEX_HERO
 	_hero.material = null
@@ -110,16 +110,14 @@ func _build() -> void:
 	_fill(_root)
 	add_child(_root)
 
-	# Cafe fill behind contain-fit 9:16 stills (shorter than 720×1280).
-	# Do not cover-crop.
+	# Behind the 720×1280 hero. Invisible when the still is exact viewport size.
 	_cover = ColorRect.new()
 	_cover.color = Color(0.22, 0.11, 0.07, 1.0)
 	_cover.mouse_filter = Control.MOUSE_FILTER_STOP
 	_fill(_cover)
 	_root.add_child(_cover)
 
-	# Native portrait stills. KEEP_ASPECT_CENTERED on the viewport rect
-	# shows the whole texture. No COVER crop, no STRETCH_SCALE.
+	# Exact 720×1280 stills. KEEP_ASPECT_CENTERED, no COVER, no STRETCH_SCALE.
 	_hero = TextureRect.new()
 	_hero.texture = TEX_HERO
 	_hero.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
