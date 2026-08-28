@@ -196,6 +196,7 @@ var _lose_flavor: Label
 var _shop_panel: Control
 var _shop_toast: Label
 var _shop_sheet_toast: Label
+var _shop_toast_tween: Tween
 var _tube_views: Array = []
 var _flash: ColorRect
 var _top_wash: ColorRect
@@ -1025,6 +1026,11 @@ func _run_shop_capture() -> void:
 	_on_shop()
 	await get_tree().process_frame
 	await get_tree().process_frame
+	var tap_sku: String = OS.get_environment("TINT_DROP_SHOP_TAP")
+	if not tap_sku.is_empty():
+		_on_shop_sku(tap_sku)
+		await get_tree().process_frame
+		await get_tree().process_frame
 	var tex: ViewportTexture = get_viewport().get_texture()
 	if tex != null:
 		var img: Image = tex.get_image()
@@ -1682,6 +1688,8 @@ func _on_next() -> void:
 		_load_level(next_i)
 
 func _toast_shop(msg: String) -> void:
+	if _shop_toast_tween != null and is_instance_valid(_shop_toast_tween):
+		_shop_toast_tween.kill()
 	if _shop_toast != null:
 		_shop_toast.text = msg
 	if _shop_sheet_toast != null:
@@ -1689,9 +1697,9 @@ func _toast_shop(msg: String) -> void:
 		_shop_sheet_toast.add_theme_color_override("font_color", UI_HERO)
 	if _shop_toast == null and _shop_sheet_toast == null:
 		return
-	var tw: Tween = create_tween()
-	tw.tween_interval(1.8)
-	tw.tween_callback(func() -> void:
+	_shop_toast_tween = create_tween()
+	_shop_toast_tween.tween_interval(1.8)
+	_shop_toast_tween.tween_callback(func() -> void:
 		if is_instance_valid(_shop_toast) and _shop_toast.text == msg:
 			_shop_toast.text = ""
 		if is_instance_valid(_shop_sheet_toast) and _shop_sheet_toast.text == msg:
@@ -1772,8 +1780,8 @@ func _build_shop_panel() -> void:
 	var cap := Label.new()
 	cap.text = SHOP_CAPTION
 	cap.position = Vector2(24, 52)
-	cap.size = Vector2(520, 24)
-	cap.add_theme_font_size_override("font_size", 16)
+	cap.size = Vector2(520, 28)
+	cap.add_theme_font_size_override("font_size", 18)
 	cap.add_theme_color_override("font_color", UI_CAPTION)
 	_shop_panel.add_child(cap)
 	_shop_sheet_toast = cap
