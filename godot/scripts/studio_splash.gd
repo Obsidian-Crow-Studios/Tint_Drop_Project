@@ -25,6 +25,7 @@ var _woke: Label
 var _stamp: Control
 var _sfx: AudioStreamPlayer
 var _seq: Tween
+var _punch: Tween
 var _consumed: bool = false
 var _resolved: bool = false
 var _playing: bool = false
@@ -288,7 +289,7 @@ func _highway_font() -> Font:
 		"FreeSans",
 	])
 	sys.font_weight = 800
-	sys.font_stretch = TextServer.FONT_STRETCH_CONDENSED
+	sys.font_stretch = 75
 	return sys
 
 
@@ -351,9 +352,11 @@ func _on_stamp_impact() -> void:
 	_play_stamp_sfx()
 	if _stamp == null:
 		return
-	var punch := create_tween()
-	punch.tween_property(_stamp, "scale", Vector2(0.94, 0.94), 0.06)
-	punch.tween_property(_stamp, "scale", Vector2.ONE, 0.10).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	if _punch != null and is_instance_valid(_punch):
+		_punch.kill()
+	_punch = create_tween()
+	_punch.tween_property(_stamp, "scale", Vector2(0.94, 0.94), 0.06)
+	_punch.tween_property(_stamp, "scale", Vector2.ONE, 0.10).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _play_stamp_sfx() -> void:
@@ -435,6 +438,9 @@ func _finish(emit_done: bool) -> void:
 	if _seq != null and is_instance_valid(_seq):
 		_seq.kill()
 		_seq = null
+	if _punch != null and is_instance_valid(_punch):
+		_punch.kill()
+		_punch = null
 	if _sfx != null:
 		_sfx.stop()
 	visible = false

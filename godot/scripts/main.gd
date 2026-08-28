@@ -237,7 +237,7 @@ func _ready() -> void:
 	_load_level(_progress.campaign_level_index)
 	var cap: String = OS.get_environment("TINT_DROP_CAPTURE")
 	if cap != "":
-		if cap == "studio" or cap == "woke" or cap == "titlehold":
+		if cap == "studio" or cap == "woke" or cap == "titlehold" or cap == "skip":
 			await _run_splash_capture(cap)
 			return
 		if _studio_splash != null:
@@ -998,6 +998,20 @@ func _run_splash_capture(kind: String) -> void:
 	if kind == "titlehold":
 		if _studio_splash != null:
 			_studio_splash.abort()
+		_restore_bgm()
+		_show_title()
+		await get_tree().process_frame
+		await get_tree().process_frame
+	elif kind == "skip":
+		if _studio_splash != null:
+			_studio_splash.play()
+		await get_tree().create_timer(0.55).timeout
+		var tap := InputEventMouseButton.new()
+		tap.button_index = MOUSE_BUTTON_LEFT
+		tap.pressed = true
+		tap.position = Vector2(360, 640)
+		if _studio_splash != null:
+			_studio_splash._input(tap)
 		_restore_bgm()
 		_show_title()
 		await get_tree().process_frame
