@@ -6,9 +6,12 @@ class_name StudioSplash
 ## slash overlay slam at 6.50 (1.8→1.0 in 0.12s) + sfx_jail_door.wav →
 ## hold ~1.2s, fade 0.4s into TAP TO PLAY.
 ## Tap skips the current plate only. Leaving S2 early skips slam + wav.
-## Once per Main instance (cold boot), not Retry / Next / pack / resume.
+## Once per process start, not Retry / Next / pack / resume.
 
 signal finished
+
+## Process-lifetime: splash plays once per cold boot, never on app resume.
+static var _played_this_process: bool = false
 
 const FADE_S := 3.0
 const STAMP_AT_S := 0.50
@@ -21,11 +24,14 @@ const VIEW := Vector2(720.0, 1280.0)
 const TEX_FEATHER := preload("res://assets/ui/splash/splash-obsidian-crow-720x1280.png")
 const TEX_WOKE_WORD := preload("res://assets/ui/splash/splash-woke-word-720x1280.png")
 const TEX_STAMP := preload("res://assets/ui/splash/splash-stamp-overlay-720x1280.png")
+const TEX_WOKE_STAMPED := preload("res://assets/ui/splash/splash-woke-720x1280.png")
 const SFX_JAIL_DOOR := preload("res://assets/sfx/sfx_jail_door.wav")
 
 var _root: Control
 var _screen1: Control
 var _screen2: Control
+var _woke_word: TextureRect
+var _woke_stamped: TextureRect
 var _stamp: TextureRect
 var _sfx: AudioStreamPlayer
 var _seq: Tween
@@ -38,18 +44,23 @@ var _stamp_started: bool = false
 
 func _ready() -> void:
 	layer = 80
-	visible = true
+	visible = not _played_this_process
 	_build()
 	if get_viewport() != null:
 		get_viewport().size_changed.connect(_fit_stamp)
 
 
 func play() -> void:
+	if _played_this_process:
+		_consumed = true
+		_finish(true)
+		return
 	if _resolved:
 		return
 	if _consumed:
 		await finished
 		return
+	_played_this_process = true
 	_consumed = true
 	_playing = true
 	visible = true
@@ -94,7 +105,12 @@ func _build() -> void:
 	_screen2.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_fill(_screen2)
 	_root.add_child(_screen2)
-	_screen2.add_child(_make_still(TEX_WOKE_WORD))
+	_woke_word = _make_still(TEX_WOKE_WORD)
+	_screen2.add_child(_woke_word)
+
+	_woke_stamped = _make_still(TEX_WOKE_STAMPED)
+	_woke_stamped.visible = false
+	_screen2.add_child(_woke_stamped)
 
 	_stamp = _make_still(TEX_STAMP)
 	_stamp.visible = false
@@ -141,6 +157,7 @@ func _reset_visuals() -> void:
 		_screen1.modulate = Color(1, 1, 1, 0)
 	if _screen2 != null:
 		_screen2.visible = false
+	_apply_s2_plates()
 	if _stamp != null:
 		_stamp.visible = false
 		_stamp.modulate = Color(1, 1, 1, 1)
@@ -167,6 +184,7 @@ func _start_screen2() -> void:
 		_screen1.visible = false
 	if _screen2 != null:
 		_screen2.visible = true
+	_apply_s2_plates()
 	if _stamp != null:
 		_stamp.visible = false
 		_stamp.scale = STAMP_FROM
@@ -176,10 +194,24 @@ func _start_screen2() -> void:
 	_seq.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
 	_seq.tween_interval(STAMP_AT_S)
 	_seq.tween_callback(_begin_stamp_slam)
-	_seq.tween_property(_stamp, "scale", Vector2.ONE, STAMP_SLAM_S).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	if _stamp_overlay_ok():
+		_seq.tween_property(_stamp, "scale", Vector2.ONE, STAMP_SLAM_S).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	_seq.tween_interval(HOLD_S)
 	_seq.tween_property(_root, "modulate:a", 0.0, OUT_S).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	_seq.tween_callback(_finish.bind(true))
+
+
+func _stamp_overlay_ok() -> bool:
+	return _stamp != null and _stamp.texture != null
+
+
+func _apply_s2_plates() -> void:
+	var overlay_ok: bool = _stamp_overlay_ok()
+	if _woke_word != null:
+		_woke_word.visible = overlay_ok
+	if _woke_stamped != null:
+		# Locked composite still only when the RGBA overlay cannot stamp.
+		_woke_stamped.visible = not overlay_ok
 
 
 func _begin_stamp_slam() -> void:
@@ -187,7 +219,7 @@ func _begin_stamp_slam() -> void:
 		return
 	_stamp_started = true
 	_fit_stamp()
-	if _stamp != null:
+	if _stamp_overlay_ok():
 		_stamp.visible = true
 		_stamp.scale = STAMP_FROM
 	_play_stamp_sfx()
