@@ -3,6 +3,7 @@ extends Control
 const TubeView = preload("res://scripts/tube.gd")
 const LogoMarkScript = preload("res://scripts/logo_mark.gd")
 const WinOverlayScript = preload("res://scripts/win_overlay.gd")
+const StudioSplashScript = preload("res://scripts/studio_splash.gd")
 const TintProgressScript = preload("res://scripts/progress.gd")
 const CAPACITY := 4
 const TUBE_SCENE_W := 144.0
@@ -225,6 +226,7 @@ var _title_pulse: Tween
 var _title_streak: Label
 var _live_hud: Array[CanvasItem] = []
 var _progress: TintProgress
+var _studio_splash: StudioSplash
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
@@ -233,9 +235,20 @@ func _ready() -> void:
 	session_clears = _progress.current_pack_clears
 	_build_ui()
 	_load_level(_progress.campaign_level_index)
-	_show_title()
-	if OS.get_environment("TINT_DROP_CAPTURE") != "":
+	var cap: String = OS.get_environment("TINT_DROP_CAPTURE")
+	if cap != "":
+		if cap == "studio" or cap == "woke" or cap == "titlehold":
+			await _run_splash_capture(cap)
+			return
+		if _studio_splash != null:
+			_studio_splash.abort()
 		_run_overlay_capture()
+		return
+	_silence_bgm()
+	if _studio_splash != null:
+		await _studio_splash.play()
+	_restore_bgm()
+	_show_title()
 
 func _process(delta: float) -> void:
 	if _bgm != null and _bgm.stream != null and not _bgm.playing:
@@ -457,11 +470,16 @@ func _build_ui() -> void:
 
 	_build_shop_panel()
 	_build_title_catcher()
+	if _title_catcher != null:
+		_title_catcher.visible = false
+		_title_catcher.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_collect_live_hud()
 	if _shop_btn != null:
 		move_child(_shop_btn, get_child_count() - 1)
 	if _shop_panel != null:
 		move_child(_shop_panel, get_child_count() - 1)
+	_studio_splash = StudioSplashScript.new()
+	add_child(_studio_splash)
 
 func _plaque_tex(tex: Texture2D) -> TextureRect:
 	var tr := TextureRect.new()
@@ -928,6 +946,14 @@ func _restore_bgm() -> void:
 	_bgm_tween.tween_property(_bgm, "volume_db", BGM_VOL, 0.35)
 
 
+func _silence_bgm() -> void:
+	if _bgm == null:
+		return
+	if _bgm_tween != null and is_instance_valid(_bgm_tween):
+		_bgm_tween.kill()
+	_bgm.volume_db = -80.0
+
+
 func _collect_live_hud() -> void:
 	_live_hud.clear()
 	var nodes: Array = [
@@ -964,11 +990,41 @@ func _dismiss_win_overlay() -> void:
 	_set_live_play_visible(true)
 
 
+func _run_splash_capture(kind: String) -> void:
+	var out_path: String = OS.get_environment("TINT_DROP_CAPTURE_PATH")
+	if out_path.is_empty():
+		out_path = "/tmp/splash_%s.png" % kind
+	_silence_bgm()
+	if kind == "titlehold":
+		if _studio_splash != null:
+			_studio_splash.abort()
+		_restore_bgm()
+		_show_title()
+		await get_tree().process_frame
+		await get_tree().process_frame
+	else:
+		if _studio_splash != null:
+			_studio_splash.play()
+		# Studio plate is fully faded in at 3s; WOKE+stamp land just after 6.6s.
+		var wait_s: float = 3.15 if kind == "studio" else 6.90
+		await get_tree().create_timer(wait_s).timeout
+		await get_tree().process_frame
+		await get_tree().process_frame
+	var tex: ViewportTexture = get_viewport().get_texture()
+	if tex != null:
+		var img: Image = tex.get_image()
+		if img != null:
+			img.save_png(out_path)
+	get_tree().quit()
+
+
 func _run_overlay_capture() -> void:
 	var kind: String = OS.get_environment("TINT_DROP_CAPTURE")
 	var out_path: String = OS.get_environment("TINT_DROP_CAPTURE_PATH")
 	if out_path.is_empty():
 		out_path = "/tmp/win_overlay_%s.png" % kind
+	if _studio_splash != null:
+		_studio_splash.abort()
 	_session_live = true
 	if _title_catcher != null:
 		_title_catcher.visible = false
