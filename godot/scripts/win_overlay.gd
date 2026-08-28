@@ -6,7 +6,6 @@ signal fanfare_ended
 
 const CHROMA := preload("res://shaders/chroma_key.gdshader")
 const TEX_HERO := preload("res://assets/ui/win/win-fanfare-cleared.png")
-const TEX_HERO_PACK := preload("res://assets/ui/win/win-fanfare-pack.png")
 const TEX_PACK := preload("res://assets/ui/win/pack-complete-word.png")
 const TEX_PIP_EMPTY := preload("res://assets/ui/pip_empty_20.png")
 const TEX_PIP_LIT := preload("res://assets/ui/pip_lit_20.png")
@@ -21,8 +20,8 @@ const PIP_SIZE := 20.0
 const PIP_GAP := 12.0
 const PIP_COUNT := 5
 const PIP_TOP := 432.0
-const WORD_TOP := 36.0
-const WORD_H := 200.0
+const WORD_TOP := 48.0
+const WORD_H := 140.0
 const NEXT_H := 188.0
 const NEXT_BOTTOM_PAD := 12.0
 const UI_CAPTION := Color8(243, 230, 216)
@@ -69,8 +68,9 @@ func present(pack_complete: bool, campaign_done: bool, filled_pips: int = 0) -> 
 	_showing = true
 	visible = true
 	var show_pack: bool = pack_complete or campaign_done
-	_hero.texture = TEX_HERO_PACK if show_pack else TEX_HERO
-	_word.visible = false
+	_hero.texture = TEX_HERO
+	_word.visible = show_pack
+	_word.texture = _atlas(TEX_PACK, Rect2(65, 405, 1427, 214))
 	if campaign_done:
 		next_btn.text = "Again"
 	else:
@@ -131,17 +131,20 @@ func _build() -> void:
 	_root.add_child(_hero)
 	_fit_hero()
 
-	_word = _keyed_rect(_atlas(TEX_PACK, Rect2(58, 398, 1442, 229)))
+	# Gel PACK COMPLETE only — chroma-key the letters over the same cafe still.
+	# Do not composite a second background plate (that was the y=430 hard seam).
+	# Baked CLEARED stays; do not inpaint/blur it into a bokeh band.
+	_word = _keyed_rect(_atlas(TEX_PACK, Rect2(65, 405, 1427, 214)))
 	_word.visible = false
 	_word.anchor_left = 0.5
 	_word.anchor_right = 0.5
 	_word.anchor_top = 0.0
 	_word.anchor_bottom = 0.0
-	_word.offset_left = -340.0
-	_word.offset_right = 340.0
+	_word.offset_left = -350.0
+	_word.offset_right = 350.0
 	_word.offset_top = WORD_TOP
 	_word.offset_bottom = WORD_TOP + WORD_H
-	_word.pivot_offset = Vector2(340.0, WORD_H * 0.5)
+	_word.pivot_offset = Vector2(350.0, WORD_H * 0.5)
 	_root.add_child(_word)
 
 	_spray_host = Control.new()
@@ -308,11 +311,11 @@ func _build_spray_bits() -> void:
 		_spray_bits.append(bit)
 
 
-func _reset_visuals(_show_pack: bool) -> void:
+func _reset_visuals(show_pack: bool) -> void:
 	_hero.modulate = Color(1, 1, 1, 1)
-	_word.visible = false
-	_word.modulate = Color(1, 1, 1, 1)
-	_word.scale = Vector2.ONE
+	_word.visible = show_pack
+	_word.modulate = Color(1, 1, 1, 0.0 if show_pack else 1.0)
+	_word.scale = Vector2(0.82, 0.82) if show_pack else Vector2.ONE
 	next_btn.modulate = Color(1, 1, 1, 0)
 	next_btn.disabled = true
 	for bit in _spray_bits:
@@ -320,9 +323,11 @@ func _reset_visuals(_show_pack: bool) -> void:
 	_seed_spray_bits()
 
 
-func _snap_idle(_show_pack: bool) -> void:
+func _snap_idle(show_pack: bool) -> void:
 	_hero.modulate = Color(1, 1, 1, 1)
-	_word.visible = false
+	_word.visible = show_pack
+	_word.modulate = Color(1, 1, 1, 1)
+	_word.scale = Vector2.ONE
 	next_btn.modulate = Color(1, 1, 1, 1)
 	next_btn.disabled = false
 	_spray_moving = false
@@ -346,11 +351,16 @@ func _seed_spray_bits() -> void:
 		bit.set_meta("oy", origin.y)
 
 
-func _run_sequence(_show_pack: bool) -> void:
+func _run_sequence(show_pack: bool) -> void:
 	if _seq != null and is_instance_valid(_seq):
 		_seq.kill()
 	_seq = create_tween()
 	_seq.set_parallel(true)
+	if show_pack:
+		_seq.tween_property(_word, "modulate:a", 1.0, 0.22)
+		_seq.tween_property(_word, "scale", Vector2(1.08, 1.08), 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		_seq.tween_property(_word, "scale", Vector2.ONE, 0.16).set_delay(0.22)
+		_seq.tween_callback(_start_word_pulse).set_delay(0.40)
 	_seq.tween_property(next_btn, "modulate:a", 1.0, 0.25).set_delay(1.05)
 	_seq.tween_callback(func() -> void:
 		next_btn.disabled = false
@@ -363,7 +373,7 @@ func _start_word_pulse() -> void:
 		return
 	if _word_tween != null and is_instance_valid(_word_tween):
 		_word_tween.kill()
-	_word.pivot_offset = Vector2(340.0, WORD_H * 0.5)
+	_word.pivot_offset = Vector2(350.0, WORD_H * 0.5)
 	_word_tween = create_tween()
 	_word_tween.set_loops()
 	_word_tween.tween_property(_word, "scale", Vector2(1.045, 1.045), 0.55).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
