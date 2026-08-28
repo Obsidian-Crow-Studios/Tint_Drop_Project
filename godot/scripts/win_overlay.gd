@@ -511,16 +511,6 @@ func _bake_pack_hero() -> Texture2D:
 		var row: int = y * w
 		for x in range(w):
 			cores[row + x] = 0
-	# Inpaint only leftover CLEARED glyphs around keyed PACK COMPLETE.
-	# Do not wipe uncovered sky/sunburst under the word.
-	var cover: PackedByteArray = _pack_opaque_cover(w, h)
-	_morph(cover, w, h, int(WORD_TOP), int(WORD_TOP + WORD_H) - 1, 2, true)
-	var left_n: int = 0
-	for i3 in n:
-		if cores[i3] != 0 and cover[i3] != 0:
-			cores[i3] = 0
-		if cores[i3] != 0:
-			left_n += 1
 	var mask_n: int = 0
 	var minx: int = w
 	var maxx: int = 0
@@ -536,46 +526,13 @@ func _bake_pack_hero() -> Texture2D:
 			maxx = maxi(maxx, x)
 			miny = mini(miny, y)
 			maxy = maxi(maxy, y)
-	print("WinOverlay: leftover glyph mask ", mask_n, " px (of ", left_n, ") bbox x=", minx, "-", maxx, " y=", miny, "-", maxy, " w=", (maxx - minx + 1) if mask_n > 0 else 0)
+	print("WinOverlay: glyph mask ", mask_n, " px bbox x=", minx, "-", maxx, " y=", miny, "-", maxy, " w=", (maxx - minx + 1) if mask_n > 0 else 0)
 	if mask_n > 0:
 		_inpaint_known(src, cores, w, h, y0, y1)
 	img.set_data(w, h, false, Image.FORMAT_RGBA8, src)
 	var tex := ImageTexture.create_from_image(img)
 	print("WinOverlay: pack hero bake ", Time.get_ticks_msec() - t0, " ms")
 	return tex
-
-
-func _pack_opaque_cover(w: int, h: int) -> PackedByteArray:
-	var cover := PackedByteArray()
-	cover.resize(w * h)
-	var src_img: Image = TEX_PACK.get_image()
-	if src_img == null:
-		return cover
-	if src_img.is_compressed():
-		src_img.decompress()
-	if src_img.get_format() != Image.FORMAT_RGBA8:
-		src_img.convert(Image.FORMAT_RGBA8)
-	var crop := Image.create(1427, 214, false, Image.FORMAT_RGBA8)
-	crop.blit_rect(src_img, Rect2i(65, 405, 1427, 214), Vector2i.ZERO)
-	var dw: int = int(WORD_HALF_W * 2.0)
-	var dh: int = int(WORD_H)
-	crop.resize(dw, dh, Image.INTERPOLATE_BILINEAR)
-	var x0: int = int((w - dw) / 2)
-	var y0: int = int(WORD_TOP)
-	for yy in dh:
-		var py: int = y0 + yy
-		if py < 0 or py >= h:
-			continue
-		for xx in dw:
-			var px: int = x0 + xx
-			if px < 0 or px >= w:
-				continue
-			var c: Color = crop.get_pixel(xx, yy)
-			var g_dom: float = c.g - maxf(c.r, c.b)
-			var green: bool = c.g > 0.42 and g_dom > 0.06
-			if not green and c.a > 0.35:
-				cover[py * w + px] = 1
-	return cover
 
 
 func _gel_cyan(c: Vector3) -> bool:
