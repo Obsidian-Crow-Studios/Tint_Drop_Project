@@ -8,7 +8,7 @@ Import the inner `godot/` folder, then F5. Portrait is 720×1280.
 
 - **TAP TO PLAY**, then sort tubes before the 60s clock runs out.
 - Tap a tube to pick its **top color run**. Tap another to **pour** (empty, or same color with space).
-- **Undo** / **Restart**. Five clears is a pack stop. Sixty levels in the current slice. **Shop** is an IAP stub.
+- **Undo** / **Restart**. Five clears is a pack stop. Seventy levels in the current slice. **Shop** is an IAP stub.
 
 ## Contribute
 
