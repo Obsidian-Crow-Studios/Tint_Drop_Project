@@ -6,7 +6,7 @@ Import the inner `godot/` folder, then F5. Portrait is 720×1280.
 
 ## Play
 
-- Cold boot plays a two-screen studio splash (white Obsidian Crow plate, then WOKE stamp) **before TAP TO PLAY**. Tap skips the remainder. Once per launch, not after each pack. Studio PNG drop: `godot/assets/ui/splash/splash-studio.png` (KEEP_ASPECT_CENTERED). Stamp SFX hook: `godot/assets/sfx/sfx_stamp_cell.wav` (silent if missing).
+- Cold boot plays a two-screen studio splash **before TAP TO PLAY**: FeatherPlate (`godot/assets/ui/splash/splash-obsidian-crow-720x1280.png`), then WokePlate (`splash-woke-word-720x1280.png`) with slash overlay (`splash-stamp-overlay-720x1280.png`) and `sfx_jail_door.wav`. KEEP_ASPECT_CENTERED. Tap skips the current plate only. Once per launch, not after Retry / Next / pack.
 - **TAP TO PLAY**, then sort tubes before the 60s clock runs out. Progress saves locally (`user://tint_drop.cfg`). TAP TO PLAY resumes the campaign; **Restart** only retries the current board.
 - Tap a tube to pick its **top color run**. Tap another to **pour** (empty, or same color with space).
 - **Undo** / **Restart**. Five clears is today’s pack. A new local date starts a fresh 5-level pack and updates the streak (small chip on TAP TO PLAY). One hundred campaign levels; after 100 the campaign loops to 1. **Shop** is an IAP stub.

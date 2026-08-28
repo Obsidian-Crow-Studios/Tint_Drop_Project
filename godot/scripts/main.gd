@@ -1003,9 +1003,10 @@ func _run_splash_capture(kind: String) -> void:
 		await get_tree().process_frame
 		await get_tree().process_frame
 	elif kind == "skip":
+		# Skip the current plate on S2 (before slam) → TAP TO PLAY, no stamp wav.
 		if _studio_splash != null:
 			_studio_splash.play()
-		await get_tree().create_timer(0.55).timeout
+		await get_tree().create_timer(6.15).timeout
 		var tap := InputEventMouseButton.new()
 		tap.button_index = MOUSE_BUTTON_LEFT
 		tap.pressed = true
@@ -1019,8 +1020,8 @@ func _run_splash_capture(kind: String) -> void:
 	else:
 		if _studio_splash != null:
 			_studio_splash.play()
-		# Studio plate is fully faded in at 3s; WOKE+stamp land just after 6.6s.
-		var wait_s: float = 3.15 if kind == "studio" else 6.90
+		# S1 fully in at 3s. S2 WokePlate at 6.0, slash overlay slam at 6.50.
+		var wait_s: float = 3.15 if kind == "studio" else 6.70
 		await get_tree().create_timer(wait_s).timeout
 		await get_tree().process_frame
 		await get_tree().process_frame
