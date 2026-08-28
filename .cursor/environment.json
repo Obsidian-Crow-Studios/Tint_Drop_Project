@@ -1,4 +1,4 @@
 {
   "name": "Tint Drop",
-  "install": "bash .cursor/install.sh"
+  "install": "bash /agent/repos/Tint_Drop_Project/.cursor/install.sh"
 }
