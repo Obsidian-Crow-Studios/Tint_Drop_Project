@@ -158,6 +158,8 @@ func _ready() -> void:
 	_build_ui()
 	_load_level(0)
 	_show_title()
+	if OS.get_environment("TINT_DROP_CAPTURE") != "":
+		_run_overlay_capture()
 
 func _process(delta: float) -> void:
 	if _bgm != null and _bgm.stream != null and not _bgm.playing:
@@ -338,7 +340,6 @@ func _build_ui() -> void:
 	add_child(_win_overlay)
 	_win_overlay.next_pressed.connect(_on_next)
 	_win_overlay.fanfare_ended.connect(_restore_bgm)
-	_collect_live_hud()
 
 	_lose_panel = Control.new()
 	_lose_panel.visible = false
@@ -380,6 +381,7 @@ func _build_ui() -> void:
 
 	_build_shop_panel()
 	_build_title_catcher()
+	_collect_live_hud()
 	if _shop_btn != null:
 		move_child(_shop_btn, get_child_count() - 1)
 	if _shop_panel != null:
@@ -830,6 +832,7 @@ func _collect_live_hud() -> void:
 	var nodes: Array = [
 		_logo, _chips_panel, _time_tile, _level_tile, _clears_tile,
 		_restart_btn, _undo_btn, _shop_btn, _shop_toast, _play_host, _hint_art, _status,
+		_top_wash, _bottom_wash, _flash,
 	]
 	for n in nodes:
 		if n is CanvasItem:
@@ -843,6 +846,11 @@ func _set_live_play_visible(show: bool) -> void:
 	for n in _live_hud:
 		if is_instance_valid(n):
 			n.visible = show
+	if not show:
+		if _shop_panel != null:
+			_shop_panel.visible = false
+		if _lose_panel != null:
+			_lose_panel.visible = false
 	if show and _tube_row != null:
 		_tube_row.visible = _session_live
 	if show:
@@ -853,6 +861,39 @@ func _dismiss_win_overlay() -> void:
 	if _win_overlay != null:
 		_win_overlay.dismiss()
 	_set_live_play_visible(true)
+
+
+func _run_overlay_capture() -> void:
+	var kind: String = OS.get_environment("TINT_DROP_CAPTURE")
+	var out_path: String = OS.get_environment("TINT_DROP_CAPTURE_PATH")
+	if out_path.is_empty():
+		out_path = "/tmp/win_overlay_%s.png" % kind
+	_session_live = true
+	if _title_catcher != null:
+		_title_catcher.visible = false
+		_title_catcher.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var pack_done: bool = kind == "pack"
+	var filled: int = 5 if pack_done else 3
+	_set_live_play_visible(false)
+	if _win_overlay != null:
+		_win_overlay.present(pack_done, false, filled)
+	# Default snap is post-fanfare idle (hue spray on). Celebrate is the
+	# 7s window before _enter_idle; used to prove spray is not on yet.
+	var phase: String = OS.get_environment("TINT_DROP_CAPTURE_PHASE")
+	if phase == "celebrate":
+		await get_tree().create_timer(0.40).timeout
+	else:
+		await get_tree().create_timer(WinOverlay.FANFARE_S + 0.45).timeout
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var tex: ViewportTexture = get_viewport().get_texture()
+	if tex != null:
+		var img: Image = tex.get_image()
+		if img != null:
+			img.save_png(out_path)
+	get_tree().quit()
 
 func _make_sfx(stream: AudioStream) -> AudioStreamPlayer:
 	var p := AudioStreamPlayer.new()
@@ -1372,9 +1413,6 @@ func _on_win() -> void:
 	var pack_done: bool = (session_clears % PACK_CLEARS) == 0
 	var campaign_done: bool = level_index >= LEVELS.size() - 1 or session_clears >= LEVELS.size()
 	_set_hint_visible(false)
-	_show_status("%d/%d clears" % [session_clears % PACK_CLEARS, PACK_CLEARS])
-	if pack_done:
-		_show_status("Pack complete.")
 	if _win_overlay != null:
 		var filled: int = session_clears % PACK_CLEARS
 		if pack_done and session_clears > 0:
@@ -1383,12 +1421,6 @@ func _on_win() -> void:
 		_win_overlay.present(pack_done, campaign_done, filled)
 	_play_sfx(_sfx_cheer_clear)
 	_hold_bgm_duck()
-	_crowd_react(true)
-	if _logo != null:
-		_logo.play_pop()
-	_punch_clear()
-	_burst_at_center(Color(UI_RIM.r, UI_RIM.g, UI_RIM.b, 1.0), 36)
-	_bounce_full_tubes()
 
 func _bounce_full_tubes() -> void:
 	var k: int = 0
