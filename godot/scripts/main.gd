@@ -32,6 +32,7 @@ const UI_HERO := Color8(224, 122, 74)
 const UI_SHEEN := Color8(92, 51, 40)
 const UI_ESPRESSO := Color8(59, 30, 22, 255)
 ## Locked 2026-08-28 mobile IAP list prices. Shop is an unpaid stub.
+const SHOP_CAPTION := "List prices. Nothing charged."
 const SHOP_SKUS: Array = [
 	["Remove ads", "$4.99", "remove_ads"],
 	["Extra well", "$1.99", "extra_well"],
@@ -1681,21 +1682,21 @@ func _on_next() -> void:
 		_load_level(next_i)
 
 func _toast_shop(msg: String) -> void:
-	var targets: Array[Label] = []
 	if _shop_toast != null:
-		targets.append(_shop_toast)
+		_shop_toast.text = msg
 	if _shop_sheet_toast != null:
-		targets.append(_shop_sheet_toast)
-	if targets.is_empty():
+		_shop_sheet_toast.text = msg
+		_shop_sheet_toast.add_theme_color_override("font_color", UI_HERO)
+	if _shop_toast == null and _shop_sheet_toast == null:
 		return
-	for lab in targets:
-		lab.text = msg
 	var tw: Tween = create_tween()
-	tw.tween_interval(1.6)
+	tw.tween_interval(1.8)
 	tw.tween_callback(func() -> void:
-		for lab in targets:
-			if is_instance_valid(lab) and lab.text == msg:
-				lab.text = ""
+		if is_instance_valid(_shop_toast) and _shop_toast.text == msg:
+			_shop_toast.text = ""
+		if is_instance_valid(_shop_sheet_toast) and _shop_sheet_toast.text == msg:
+			_shop_sheet_toast.text = SHOP_CAPTION
+			_shop_sheet_toast.add_theme_color_override("font_color", UI_CAPTION)
 	)
 
 func _shop_flat(fill: Color, rim: Color, radius: int, border: int = 2) -> StyleBoxFlat:
@@ -1769,12 +1770,13 @@ func _build_shop_panel() -> void:
 	_shop_panel.add_child(title)
 
 	var cap := Label.new()
-	cap.text = "List prices. Nothing charged."
+	cap.text = SHOP_CAPTION
 	cap.position = Vector2(24, 52)
 	cap.size = Vector2(520, 24)
 	cap.add_theme_font_size_override("font_size", 16)
 	cap.add_theme_color_override("font_color", UI_CAPTION)
 	_shop_panel.add_child(cap)
+	_shop_sheet_toast = cap
 
 	var close_b := Button.new()
 	close_b.text = "X"
@@ -1804,15 +1806,6 @@ func _build_shop_panel() -> void:
 		var price := String(row[1])
 		var sku_id := String(row[2])
 		list.add_child(_make_shop_row(sku_name, price, _on_shop_sku.bind(sku_id)))
-
-	_shop_sheet_toast = Label.new()
-	_shop_sheet_toast.position = Vector2(24, 716)
-	_shop_sheet_toast.size = Vector2(592, 28)
-	_shop_sheet_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_shop_sheet_toast.add_theme_font_size_override("font_size", 16)
-	_shop_sheet_toast.add_theme_color_override("font_color", UI_CAPTION)
-	_shop_sheet_toast.text = ""
-	_shop_panel.add_child(_shop_sheet_toast)
 
 func _on_shop() -> void:
 	if _shop_panel == null:
