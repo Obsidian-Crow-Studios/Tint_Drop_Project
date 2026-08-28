@@ -32,6 +32,17 @@ const UI_NUM := Color8(243, 230, 216)
 const UI_HERO := Color8(224, 122, 74)
 const UI_SHEEN := Color8(92, 51, 40)
 const UI_ESPRESSO := Color8(59, 30, 22, 255)
+## Locked 2026-08-28 mobile IAP list prices. Shop is an unpaid stub.
+const SHOP_CAPTION := "List prices. Nothing charged."
+const SHOP_SKUS: Array = [
+	["Remove ads", "$4.99", "remove_ads"],
+	["Extra well", "$1.99", "extra_well"],
+	["Undo pack (5)", "$1.99", "undo_pack"],
+	["Color-bomb", "$1.99", "color_bomb"],
+	["Booster starter (1 extra well + 3 undos + 1 bomb)", "$4.99", "booster_starter"],
+	["Well skin or chip trail", "$0.99", "well_skin"],
+	["14-day cosmetic track", "$4.99", "cosmetic_track"],
+]
 const HINT_FONT := preload("res://assets/ui/fonts/BubblegumSans-Regular.ttf")
 const CAFE_BG := preload("res://assets/crowd/cafe-bg.png")
 const TEX_TABLE_WATCH := preload("res://assets/crowd/table-watch.png")
@@ -185,6 +196,8 @@ var _lose_label: Label
 var _lose_flavor: Label
 var _shop_panel: Control
 var _shop_toast: Label
+var _shop_sheet_toast: Label
+var _shop_toast_tween: Tween
 var _tube_views: Array = []
 var _flash: ColorRect
 var _top_wash: ColorRect
@@ -243,6 +256,11 @@ func _ready() -> void:
 		if _studio_splash != null:
 			_studio_splash.abort()
 		_run_overlay_capture()
+		return
+	if OS.get_environment("TINT_DROP_SHOP_CAPTURE") != "":
+		if _studio_splash != null:
+			_studio_splash.abort()
+		_run_shop_capture()
 		return
 	_silence_bgm()
 	if _studio_splash != null:
@@ -1067,6 +1085,34 @@ func _run_overlay_capture() -> void:
 			img.save_png(out_path)
 	get_tree().quit()
 
+
+func _run_shop_capture() -> void:
+	var out_path: String = OS.get_environment("TINT_DROP_SHOP_CAPTURE")
+	if out_path.is_empty():
+		out_path = "/tmp/shop_sheet.png"
+	_session_live = true
+	if _title_catcher != null:
+		_title_catcher.visible = false
+		_title_catcher.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_set_live_play_visible(true)
+	_on_shop()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var tap_sku: String = OS.get_environment("TINT_DROP_SHOP_TAP")
+	if not tap_sku.is_empty():
+		_on_shop_sku(tap_sku)
+		await get_tree().process_frame
+		await get_tree().process_frame
+	var tex: ViewportTexture = get_viewport().get_texture()
+	if tex != null:
+		var img: Image = tex.get_image()
+		if img != null:
+			img.save_png(out_path)
+	get_tree().quit()
+
+
 func _make_sfx(stream: AudioStream) -> AudioStreamPlayer:
 	var p := AudioStreamPlayer.new()
 	p.stream = stream
@@ -1716,14 +1762,23 @@ func _on_next() -> void:
 		_load_level(next_i)
 
 func _toast_shop(msg: String) -> void:
-	if _shop_toast == null:
+	if _shop_toast_tween != null and is_instance_valid(_shop_toast_tween):
+		_shop_toast_tween.kill()
+	if _shop_toast != null:
+		_shop_toast.text = msg
+	if _shop_sheet_toast != null:
+		_shop_sheet_toast.text = msg
+		_shop_sheet_toast.add_theme_color_override("font_color", UI_HERO)
+	if _shop_toast == null and _shop_sheet_toast == null:
 		return
-	_shop_toast.text = msg
-	var tw: Tween = create_tween()
-	tw.tween_interval(1.6)
-	tw.tween_callback(func() -> void:
+	_shop_toast_tween = create_tween()
+	_shop_toast_tween.tween_interval(1.8)
+	_shop_toast_tween.tween_callback(func() -> void:
 		if is_instance_valid(_shop_toast) and _shop_toast.text == msg:
 			_shop_toast.text = ""
+		if is_instance_valid(_shop_sheet_toast) and _shop_sheet_toast.text == msg:
+			_shop_sheet_toast.text = SHOP_CAPTION
+			_shop_sheet_toast.add_theme_color_override("font_color", UI_CAPTION)
 	)
 
 func _shop_flat(fill: Color, rim: Color, radius: int, border: int = 2) -> StyleBoxFlat:
@@ -1734,13 +1789,14 @@ func _shop_flat(fill: Color, rim: Color, radius: int, border: int = 2) -> StyleB
 	sb.set_corner_radius_all(radius)
 	return sb
 
-func _make_shop_row(text: String, cb: Callable, pos: Vector2, sz: Vector2) -> Button:
+func _make_shop_row(sku_name: String, price: String, cb: Callable) -> Button:
+	var sz := Vector2(600, 76)
 	var b := Button.new()
-	b.text = text
-	b.position = pos
+	b.text = ""
 	b.size = sz
 	b.custom_minimum_size = sz
-	b.add_theme_font_size_override("font_size", 22)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.add_theme_font_size_override("font_size", 18)
 	b.add_theme_color_override("font_color", UI_CAPTION)
 	b.add_theme_color_override("font_hover_color", Color(1.0, 1.0, 1.0))
 	b.add_theme_color_override("font_pressed_color", UI_HERO)
@@ -1752,15 +1808,35 @@ func _make_shop_row(text: String, cb: Callable, pos: Vector2, sz: Vector2) -> Bu
 	b.add_theme_stylebox_override("hover", sb)
 	b.add_theme_stylebox_override("pressed", sb)
 	b.add_theme_stylebox_override("focus", sb)
+	var name_l := Label.new()
+	name_l.text = sku_name
+	name_l.position = Vector2(16, 8)
+	name_l.size = Vector2(sz.x - 128, sz.y - 16)
+	name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_l.add_theme_font_size_override("font_size", 18)
+	name_l.add_theme_color_override("font_color", UI_CAPTION)
+	name_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(name_l)
+	var price_l := Label.new()
+	price_l.text = price
+	price_l.position = Vector2(sz.x - 112, 8)
+	price_l.size = Vector2(96, sz.y - 16)
+	price_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	price_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	price_l.add_theme_font_size_override("font_size", 22)
+	price_l.add_theme_color_override("font_color", UI_HERO)
+	price_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(price_l)
 	b.pressed.connect(cb)
 	return b
 
 func _build_shop_panel() -> void:
 	_shop_panel = Control.new()
 	_shop_panel.visible = false
-	_shop_panel.position = Vector2(120, 480)
-	_shop_panel.size = Vector2(480, 320)
-	_shop_panel.custom_minimum_size = Vector2(480, 320)
+	_shop_panel.position = Vector2(40, 160)
+	_shop_panel.size = Vector2(640, 760)
+	_shop_panel.custom_minimum_size = Vector2(640, 760)
 	_shop_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_shop_panel.clip_contents = false
 	_add_walnut_icing(_shop_panel)
@@ -1770,14 +1846,23 @@ func _build_shop_panel() -> void:
 	var title := Label.new()
 	title.text = "Shop"
 	title.position = Vector2(24, 16)
-	title.size = Vector2(400, 40)
+	title.size = Vector2(520, 40)
 	title.add_theme_font_size_override("font_size", 28)
 	title.add_theme_color_override("font_color", UI_CAPTION)
 	_shop_panel.add_child(title)
 
+	var cap := Label.new()
+	cap.text = SHOP_CAPTION
+	cap.position = Vector2(24, 52)
+	cap.size = Vector2(520, 28)
+	cap.add_theme_font_size_override("font_size", 18)
+	cap.add_theme_color_override("font_color", UI_CAPTION)
+	_shop_panel.add_child(cap)
+	_shop_sheet_toast = cap
+
 	var close_b := Button.new()
 	close_b.text = "X"
-	close_b.position = Vector2(432, 0)
+	close_b.position = Vector2(584, 8)
 	close_b.size = Vector2(48, 48)
 	close_b.custom_minimum_size = Vector2(48, 48)
 	close_b.add_theme_font_size_override("font_size", 22)
@@ -1793,8 +1878,16 @@ func _build_shop_panel() -> void:
 	close_b.pressed.connect(_on_shop_close)
 	_shop_panel.add_child(close_b)
 
-	_shop_panel.add_child(_make_shop_row("Extra well", _on_shop_extra_well, Vector2(20, 80), Vector2(440, 64)))
-	_shop_panel.add_child(_make_shop_row("Remove ads", _on_shop_remove_ads, Vector2(20, 160), Vector2(440, 64)))
+	var list := VBoxContainer.new()
+	list.position = Vector2(20, 88)
+	list.size = Vector2(600, 620)
+	list.add_theme_constant_override("separation", 8)
+	_shop_panel.add_child(list)
+	for row in SHOP_SKUS:
+		var sku_name := String(row[0])
+		var price := String(row[1])
+		var sku_id := String(row[2])
+		list.add_child(_make_shop_row(sku_name, price, _on_shop_sku.bind(sku_id)))
 
 func _on_shop() -> void:
 	if _shop_panel == null:
@@ -1806,8 +1899,12 @@ func _on_shop_close() -> void:
 	if _shop_panel != null:
 		_shop_panel.visible = false
 
-func _on_shop_extra_well() -> void:
-	_apply_extra_well()
+func _on_shop_sku(sku_id: String) -> void:
+	print("IAP later")
+	if sku_id == "extra_well":
+		_apply_extra_well()
+		return
+	_toast_shop("Not billed yet.")
 
 func _apply_extra_well() -> void:
 	if _extra_well_used or won or lost:
@@ -1825,7 +1922,3 @@ func _apply_extra_well() -> void:
 		_shop_panel.visible = false
 	_show_status("Extra well.")
 	_play_sfx(_sfx_pick)
-
-func _on_shop_remove_ads() -> void:
-	print("IAP later")
-	_toast_shop("IAP later")
