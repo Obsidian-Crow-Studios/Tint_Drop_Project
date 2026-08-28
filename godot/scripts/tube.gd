@@ -9,6 +9,7 @@ const PALETTE: Array[Color] = [
 	Color(0.31, 0.67, 0.95),
 	Color(0.33, 0.82, 0.60),
 	Color(0.98, 0.78, 0.28),
+	Color(0.70, 0.40, 0.90),
 ]
 const TEX_EMPTY := preload("res://assets/ui/tube-empty.png")
 ## Inner glass well as fractions of tube-empty.png (443x868, 16px pad).

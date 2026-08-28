@@ -20,6 +20,8 @@ from collections import deque
 from pathlib import Path
 
 CAPACITY = 4
+# Matches TubeView.PALETTE (0..4 today). Not a level-count cap.
+MAX_COLOR_ID = 4
 DEFAULT_NODE_CAP = 400_000
 
 
@@ -50,9 +52,9 @@ def validate_level(level: list, index: int) -> None:
                 f"Level {index + 1}: tube exceeds capacity {CAPACITY}: {tube}"
             )
         for chip in tube:
-            if not isinstance(chip, int) or chip < 0 or chip > 3:
+            if not isinstance(chip, int) or chip < 0 or chip > MAX_COLOR_ID:
                 raise SystemExit(
-                    f"Level {index + 1}: color {chip!r} must be int 0..3"
+                    f"Level {index + 1}: color {chip!r} must be int 0..{MAX_COLOR_ID}"
                 )
             counts[chip] = counts.get(chip, 0) + 1
     for color, n in sorted(counts.items()):
