@@ -42,17 +42,20 @@ One Godot project. Export presets, not three games.
 USD list prices locked 2026-08-28. Stores take ~30%. First 50 levels stay free. No $4.99 fail-wall.
 
 **Mobile IAP**
-- Remove ads — $4.99
-- Extra well — $1.99
-- Undo pack (5) — $1.99
-- Color-bomb — $1.99
-- Booster starter (1 extra well + 3 undos + 1 bomb) — $4.99
-- Well skin or chip trail — $0.99
-- 14-day cosmetic track (no level paywall) — $4.99
+
+Store product IDs: `com.obsidiancrow.tintdrop.<sku_id>` (example `com.obsidiancrow.tintdrop.remove_ads`).
+
+- Remove ads — $4.99 — `remove_ads`
+- Extra well — $1.99 — `extra_well`
+- Undo pack (5) — $1.99 — `undo_pack`
+- Color-bomb — $1.99 — `color_bomb`
+- Booster starter (1 extra well + 3 undos + 1 bomb) — $4.99 — `booster_starter`
+- Well skin or chip trail — $0.99 — `well_skin`
+- 14-day cosmetic track (no level paywall) — $4.99 — `cosmetic_track`
 - Rewarded ads: extra retry or one booster (opt-in, never forced mid-clear). No price.
 
 **Steam**
-- $7.99 one purchase: the game with ads off + booster starter kit. No rewarded ads on Steam.
+- $7.99 one purchase: the game with ads off + booster starter kit. No rewarded ads on Steam. No mobile IAP catalog.
 
 **Forbidden**
 - Loot boxes, gacha, randomized paid packs
@@ -78,7 +81,7 @@ USD list prices locked 2026-08-28. Stores take ~30%. First 50 levels stay free. 
 
 ## 9. Prototype (this week)
 
-F5 playable: 10 levels, win/lose, retry, one booster, fake IAP button. No store accounts yet.
+F5 playable: 100 levels, win/lose, retry, Shop catalog with locked list prices. Editor / desktop does not charge (toast “Not billed yet.”). No live store accounts required.
 
 ## 10. Out of scope for v1
 
