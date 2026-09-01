@@ -5,6 +5,7 @@ const LogoMarkScript = preload("res://scripts/logo_mark.gd")
 const WinOverlayScript = preload("res://scripts/win_overlay.gd")
 const StudioSplashScript = preload("res://scripts/studio_splash.gd")
 const TintProgressScript = preload("res://scripts/progress.gd")
+const IapServiceScript = preload("res://scripts/iap_service.gd")
 const CAPACITY := 4
 const TUBE_SCENE_W := 144.0
 const TUBE_SCENE_H := 282.0
@@ -32,7 +33,7 @@ const UI_NUM := Color8(243, 230, 216)
 const UI_HERO := Color8(224, 122, 74)
 const UI_SHEEN := Color8(92, 51, 40)
 const UI_ESPRESSO := Color8(59, 30, 22, 255)
-## Locked 2026-08-28 mobile IAP list prices. Shop is an unpaid stub.
+## Locked 2026-08-28 mobile IAP list prices. Product IDs live in IapService.
 const SHOP_CAPTION := "List prices. Nothing charged."
 const SHOP_SKUS: Array = [
 	["Remove ads", "$4.99", "remove_ads"],
@@ -239,6 +240,7 @@ var _title_pulse: Tween
 var _title_streak: Label
 var _live_hud: Array[CanvasItem] = []
 var _progress: TintProgress
+var _iap: IapServiceScript
 var _studio_splash: StudioSplash
 
 func _ready() -> void:
@@ -246,6 +248,10 @@ func _ready() -> void:
 	_progress = TintProgressScript.new()
 	_progress.boot(LEVELS.size())
 	session_clears = _progress.current_pack_clears
+	_iap = IapServiceScript.new()
+	add_child(_iap)
+	_iap.setup(_progress)
+	_iap.purchase_finished.connect(_on_iap_purchase_finished)
 	_build_ui()
 	_load_level(_progress.campaign_level_index)
 	var cap: String = OS.get_environment("TINT_DROP_CAPTURE")
@@ -1883,32 +1889,73 @@ func _build_shop_panel() -> void:
 	list.size = Vector2(600, 620)
 	list.add_theme_constant_override("separation", 8)
 	_shop_panel.add_child(list)
-	for row in SHOP_SKUS:
-		var sku_name := String(row[0])
-		var price := String(row[1])
-		var sku_id := String(row[2])
-		list.add_child(_make_shop_row(sku_name, price, _on_shop_sku.bind(sku_id)))
+	if _iap == null or _iap.shows_mobile_catalog():
+		for row in SHOP_SKUS:
+			var sku_name := String(row[0])
+			var price := String(row[1])
+			var sku_id := String(row[2])
+			list.add_child(_make_shop_row(sku_name, price, _on_shop_sku.bind(sku_id)))
 
 func _on_shop() -> void:
 	if _shop_panel == null:
 		return
 	_shop_panel.visible = true
 	move_child(_shop_panel, get_child_count() - 1)
+	if _iap != null:
+		_iap.restore_purchases()
 
 func _on_shop_close() -> void:
 	if _shop_panel != null:
 		_shop_panel.visible = false
 
 func _on_shop_sku(sku_id: String) -> void:
-	print("IAP later")
-	if sku_id == "extra_well":
-		_apply_extra_well()
+	if _iap == null:
+		print("IAP later")
+		_toast_shop("Not billed yet.")
 		return
-	_toast_shop("Not billed yet.")
+	var result: Dictionary = _iap.request_purchase(sku_id)
+	if String(result.get("status", "")) != "pending":
+		_handle_iap_result(sku_id, result)
+
+func _on_iap_purchase_finished(sku_id: String, status: String, message: String) -> void:
+	if status == "pending" or status.is_empty():
+		return
+	_handle_iap_result(sku_id, {"status": status, "message": message})
+
+func _handle_iap_result(sku_id: String, result: Dictionary) -> void:
+	var status: String = String(result.get("status", "unpaid"))
+	var message: String = String(result.get("message", "Not billed yet."))
+	match status:
+		"unpaid":
+			print("IAP later")
+			_toast_shop("Not billed yet.")
+		"debug":
+			_toast_shop("Debug grant. Not billed.")
+			_on_sku_granted(sku_id)
+		"granted", "restored":
+			_toast_shop(message if not message.is_empty() else "Unlocked.")
+			_on_sku_granted(sku_id)
+		"owned":
+			_toast_shop("Owned.")
+		"pending":
+			pass
+		"unavailable":
+			_toast_shop(message if not message.is_empty() else "Not billed yet.")
+		_:
+			_toast_shop(message if not message.is_empty() else "Not billed yet.")
+
+func _on_sku_granted(sku_id: String) -> void:
+	if sku_id == "extra_well" or sku_id == "booster_starter":
+		_apply_extra_well()
 
 func _apply_extra_well() -> void:
 	if _extra_well_used or won or lost:
 		return
+	if not _session_live:
+		return
+	if _progress != null:
+		if not _progress.consume_extra_well():
+			return
 	_extra_well_used = true
 	var extra: Array[int] = []
 	tubes.append(extra)

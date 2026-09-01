@@ -1,10 +1,12 @@
 extends RefCounted
 class_name TintProgress
 
-## Local campaign + daily pack + streak. Keep in sync with tools/progress_save.py.
+## Local campaign + daily pack + streak + IAP entitlements.
+## Keep in sync with tools/progress_save.py. One ConfigFile; no second save.
 
 const SAVE_PATH := "user://tint_drop.cfg"
 const SECTION := "progress"
+const ENTITLEMENTS := "entitlements"
 const PACK_CLEARS := 5
 const CAMPAIGN_MAX := 99
 
@@ -15,6 +17,13 @@ var streak_days: int = 0
 var last_play_date: String = ""
 var save_path: String = SAVE_PATH
 var level_count: int = 100
+var remove_ads: bool = false
+var well_skin: bool = false
+var booster_starter: bool = false
+var extra_well_count: int = 0
+var undo_count: int = 0
+var bomb_count: int = 0
+var cosmetic_track_until: int = 0
 
 
 func boot(p_level_count: int, today: String = "") -> void:
@@ -60,22 +69,101 @@ func load_from_disk() -> void:
 	daily_pack_date = str(cfg.get_value(SECTION, "daily_pack_date", ""))
 	streak_days = int(cfg.get_value(SECTION, "streak_days", 0))
 	last_play_date = str(cfg.get_value(SECTION, "last_play_date", ""))
+	remove_ads = bool(cfg.get_value(ENTITLEMENTS, "remove_ads", false))
+	well_skin = bool(cfg.get_value(ENTITLEMENTS, "well_skin", false))
+	booster_starter = bool(cfg.get_value(ENTITLEMENTS, "booster_starter", false))
+	extra_well_count = int(cfg.get_value(ENTITLEMENTS, "extra_well_count", 0))
+	undo_count = int(cfg.get_value(ENTITLEMENTS, "undo_count", 0))
+	bomb_count = int(cfg.get_value(ENTITLEMENTS, "bomb_count", 0))
+	cosmetic_track_until = int(cfg.get_value(ENTITLEMENTS, "cosmetic_track_until", 0))
 	_clamp_fields()
 
 
 func save_to_disk() -> void:
 	_clamp_fields()
 	var cfg := ConfigFile.new()
+	cfg.load(_effective_path())
 	cfg.set_value(SECTION, "campaign_level_index", campaign_level_index)
 	cfg.set_value(SECTION, "current_pack_clears", current_pack_clears)
 	cfg.set_value(SECTION, "daily_pack_date", daily_pack_date)
 	cfg.set_value(SECTION, "streak_days", streak_days)
 	cfg.set_value(SECTION, "last_play_date", last_play_date)
+	cfg.set_value(ENTITLEMENTS, "remove_ads", remove_ads)
+	cfg.set_value(ENTITLEMENTS, "well_skin", well_skin)
+	cfg.set_value(ENTITLEMENTS, "booster_starter", booster_starter)
+	cfg.set_value(ENTITLEMENTS, "extra_well_count", extra_well_count)
+	cfg.set_value(ENTITLEMENTS, "undo_count", undo_count)
+	cfg.set_value(ENTITLEMENTS, "bomb_count", bomb_count)
+	cfg.set_value(ENTITLEMENTS, "cosmetic_track_until", cosmetic_track_until)
 	cfg.save(_effective_path())
+
+
+func apply_sku(sku_id: String) -> void:
+	match sku_id:
+		"remove_ads":
+			remove_ads = true
+		"extra_well":
+			extra_well_count += 1
+		"undo_pack":
+			undo_count += 5
+		"color_bomb":
+			bomb_count += 1
+		"booster_starter":
+			if booster_starter:
+				return
+			booster_starter = true
+			extra_well_count += 1
+			undo_count += 3
+			bomb_count += 1
+		"well_skin":
+			well_skin = true
+		"cosmetic_track":
+			_start_cosmetic_track(14)
+		_:
+			return
+	save_to_disk()
+
+
+func apply_steam_paid_app() -> void:
+	remove_ads = true
+	if not booster_starter:
+		booster_starter = true
+		extra_well_count += 1
+		undo_count += 3
+		bomb_count += 1
+	save_to_disk()
+
+
+func consume_extra_well() -> bool:
+	if extra_well_count <= 0:
+		return false
+	extra_well_count -= 1
+	save_to_disk()
+	return true
+
+
+func cosmetic_track_active(now_unix: int = 0) -> bool:
+	if cosmetic_track_until <= 0:
+		return false
+	if now_unix <= 0:
+		now_unix = int(Time.get_unix_time_from_system())
+	return now_unix < cosmetic_track_until
+
+
+func _start_cosmetic_track(days: int) -> void:
+	var now: int = int(Time.get_unix_time_from_system())
+	var add: int = days * 86400
+	if cosmetic_track_until > now:
+		cosmetic_track_until += add
+	else:
+		cosmetic_track_until = now + add
 
 
 func apply_daily_rollover(today: String) -> void:
 	if today.is_empty() or daily_pack_date == today:
+		return
+	if daily_pack_date.is_empty():
+		# Entitlement-only save: never played, so don't invent a pack day.
 		return
 	# New local date: tomorrow's pack. Streak uses last successful clear day.
 	current_pack_clears = 0
@@ -171,6 +259,10 @@ func _clamp_fields() -> void:
 	campaign_level_index = clampi(campaign_level_index, 0, last_i)
 	current_pack_clears = clampi(current_pack_clears, 0, PACK_CLEARS)
 	streak_days = maxi(streak_days, 0)
+	extra_well_count = maxi(extra_well_count, 0)
+	undo_count = maxi(undo_count, 0)
+	bomb_count = maxi(bomb_count, 0)
+	cosmetic_track_until = maxi(cosmetic_track_until, 0)
 
 
 func _parse_ymd(s: String) -> Vector3i:
